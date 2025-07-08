@@ -1,4 +1,10 @@
-import { executeQuery } from "../../../lib/database";
+// pages/api/categories/manage.js - 정리된 버전
+import { 
+    executeQuery, 
+    startTransaction, 
+    commitTransaction, 
+    rollbackTransaction 
+} from "../../../lib/database";
 
 export default async function handler(req, res) {
     if (req.method === "POST") {
@@ -119,7 +125,9 @@ export default async function handler(req, res) {
             });
         }
     } else if (req.method === "DELETE") {
-        // Delete category
+        // Delete category with cascading delete support
+        let connection = null;
+        
         try {
             const { category_id } = req.body;
 
@@ -130,33 +138,141 @@ export default async function handler(req, res) {
                 });
             }
 
-            // Check if category has keywords
-            const keywords = await executeQuery(
+            console.log("Attempting to delete category:", category_id);
+
+            // Get category info first
+            const categoryInfo = await executeQuery(
+                "SELECT name, display_name FROM categories WHERE id = ?",
+                [category_id]
+            );
+
+            if (categoryInfo.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Category not found",
+                });
+            }
+
+            // Check for associated keywords and get count
+            const keywordCheck = await executeQuery(
                 "SELECT COUNT(*) as count FROM keywords WHERE category_id = ?",
                 [category_id]
             );
 
-            if (keywords[0].count > 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: `Cannot delete category. It has ${keywords[0].count} keyword(s) associated with it.`,
+            const keywordCount = keywordCheck[0].count;
+            console.log(`Category has ${keywordCount} associated keywords`);
+
+            // Start transaction using new function
+            connection = await startTransaction();
+
+            try {
+                if (keywordCount > 0) {
+                    console.log("Deleting associated data...");
+                    
+                    // Get all keyword IDs for this category
+                    const [keywordIds] = await connection.execute(
+                        "SELECT id FROM keywords WHERE category_id = ?",
+                        [category_id]
+                    );
+
+                    if (keywordIds.length > 0) {
+                        const keywordIdList = keywordIds.map(k => k.id);
+                        const keywordPlaceholders = keywordIdList.map(() => '?').join(',');
+
+                        // Get all keyword_url IDs for these keywords
+                        const [keywordUrls] = await connection.execute(
+                            `SELECT id FROM keyword_urls WHERE keyword_id IN (${keywordPlaceholders})`,
+                            keywordIdList
+                        );
+
+                        if (keywordUrls.length > 0) {
+                            const urlIds = keywordUrls.map(url => url.id);
+                            const urlPlaceholders = urlIds.map(() => '?').join(',');
+
+                            // Delete URL scan details first (deepest level)
+                            try {
+                                const [deleteScanDetails] = await connection.execute(
+                                    `DELETE FROM url_scan_details WHERE keyword_url_id IN (${urlPlaceholders})`,
+                                    urlIds
+                                );
+                                console.log(`Deleted ${deleteScanDetails.affectedRows} url_scan_details`);
+                            } catch (scanError) {
+                                console.log("URL scan details deletion skipped:", scanError.message);
+                            }
+                        }
+
+                        // Delete scan results (if table exists)
+                        try {
+                            const [deleteScanResults] = await connection.execute(
+                                `DELETE FROM scan_results WHERE keyword_id IN (${keywordPlaceholders})`,
+                                keywordIdList
+                            );
+                            console.log(`Deleted ${deleteScanResults.affectedRows} scan_results`);
+                        } catch (scanError) {
+                            console.log("Scan results deletion skipped:", scanError.message);
+                        }
+
+                        // Delete keyword URLs
+                        const [deleteUrls] = await connection.execute(
+                            `DELETE FROM keyword_urls WHERE keyword_id IN (${keywordPlaceholders})`,
+                            keywordIdList
+                        );
+                        console.log(`Deleted ${deleteUrls.affectedRows} keyword URLs`);
+                    }
+
+                    // Delete keywords
+                    const [deleteKeywords] = await connection.execute(
+                        "DELETE FROM keywords WHERE category_id = ?",
+                        [category_id]
+                    );
+                    console.log(`Deleted ${deleteKeywords.affectedRows} keywords`);
+                }
+
+                // Finally delete the category
+                const [deleteResult] = await connection.execute(
+                    "DELETE FROM categories WHERE id = ?",
+                    [category_id]
+                );
+
+                if (deleteResult.affectedRows === 0) {
+                    throw new Error("Category not found or already deleted");
+                }
+
+                // Commit transaction
+                await commitTransaction(connection);
+                connection = null; // 연결이 이미 해제됨
+                console.log("Category deletion completed successfully");
+
+                res.status(200).json({
+                    success: true,
+                    message: `Category "${categoryInfo[0].display_name}" and all associated data (${keywordCount} keywords) deleted successfully`,
+                    deletedKeywords: keywordCount,
                 });
+
+            } catch (deleteError) {
+                // Rollback on error
+                if (connection) {
+                    await rollbackTransaction(connection);
+                    connection = null;
+                }
+                throw deleteError;
             }
 
-            // Delete category
-            await executeQuery("DELETE FROM categories WHERE id = ?", [
-                category_id,
-            ]);
-
-            res.status(200).json({
-                success: true,
-                message: "Category deleted successfully",
-            });
         } catch (error) {
             console.error("Delete category error:", error);
+            
+            // Make sure to rollback if something went wrong
+            if (connection) {
+                try {
+                    await rollbackTransaction(connection);
+                } catch (rollbackError) {
+                    console.error("Rollback error:", rollbackError);
+                }
+            }
+
             res.status(500).json({
                 success: false,
-                message: "Failed to delete category",
+                message: "Failed to delete category: " + error.message,
                 error: error.message,
             });
         }

@@ -1,3 +1,4 @@
+// components/Admin/AdminLayout.jsx - URL 관리 탭 제거
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useState } from "react";
@@ -9,7 +10,6 @@ const AdminLayout = ({ children }) => {
     const navigation = [
         { name: "대시보드", href: "/", icon: "📊" },
         { name: "키워드 관리", href: "/admin/keywords", icon: "🔍" },
-        { name: "URL 관리", href: "/admin/urls", icon: "🔗" },
         { name: "카테고리 관리", href: "/admin/categories", icon: "📁" },
         { name: "스캔 세션", href: "/admin/scan-sessions", icon: "⚡" },
         { name: "노출 트렌드", href: "/admin/trends", icon: "📈" },

@@ -1,4 +1,10 @@
-import { executeQuery } from "../../../lib/database";
+// pages/api/keywords/manage.js - 정리된 버전
+import { 
+    executeQuery, 
+    startTransaction, 
+    commitTransaction, 
+    rollbackTransaction 
+} from "../../../lib/database";
 
 export default async function handler(req, res) {
     if (req.method === "POST") {
@@ -127,7 +133,9 @@ export default async function handler(req, res) {
             });
         }
     } else if (req.method === "DELETE") {
-        // Delete keyword
+        // Delete keyword with proper cascade deletion
+        let connection = null;
+        
         try {
             const { keyword_id } = req.body;
 
@@ -138,20 +146,115 @@ export default async function handler(req, res) {
                 });
             }
 
-            // Delete keyword (cascade will handle URLs)
-            await executeQuery("DELETE FROM keywords WHERE id = ?", [
-                keyword_id,
-            ]);
+            console.log("Starting keyword deletion process for ID:", keyword_id);
 
-            res.status(200).json({
-                success: true,
-                message: "Keyword deleted successfully",
-            });
+            // Get keyword info first
+            const keywordInfo = await executeQuery(
+                "SELECT keyword_text FROM keywords WHERE id = ?",
+                [keyword_id]
+            );
+
+            if (keywordInfo.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Keyword not found",
+                });
+            }
+
+            const keywordText = keywordInfo[0].keyword_text;
+
+            // Start transaction using new function
+            connection = await startTransaction();
+
+            try {
+                // Step 1: Get all keyword_url IDs for this keyword
+                const [keywordUrls] = await connection.execute(
+                    "SELECT id FROM keyword_urls WHERE keyword_id = ?",
+                    [keyword_id]
+                );
+
+                console.log(`Found ${keywordUrls.length} URLs for keyword`);
+
+                if (keywordUrls.length > 0) {
+                    const urlIds = keywordUrls.map(url => url.id);
+                    const placeholders = urlIds.map(() => '?').join(',');
+
+                    // Step 2: Delete url_scan_details first (deepest level)
+                    try {
+                        const [deleteScanDetails] = await connection.execute(
+                            `DELETE FROM url_scan_details WHERE keyword_url_id IN (${placeholders})`,
+                            urlIds
+                        );
+                        console.log(`Deleted ${deleteScanDetails.affectedRows} url_scan_details records`);
+                    } catch (scanError) {
+                        console.log("url_scan_details deletion skipped (table might not exist):", scanError.message);
+                    }
+
+                    // Step 3: Delete keyword_urls
+                    const [deleteUrls] = await connection.execute(
+                        `DELETE FROM keyword_urls WHERE keyword_id = ?`,
+                        [keyword_id]
+                    );
+                    console.log(`Deleted ${deleteUrls.affectedRows} keyword_urls records`);
+                }
+
+                // Step 4: Delete scan_results that directly reference the keyword
+                try {
+                    const [deleteScanResults] = await connection.execute(
+                        "DELETE FROM scan_results WHERE keyword_id = ?",
+                        [keyword_id]
+                    );
+                    console.log(`Deleted ${deleteScanResults.affectedRows} scan_results records`);
+                } catch (scanError) {
+                    console.log("scan_results deletion skipped (table might not exist):", scanError.message);
+                }
+
+                // Step 5: Finally delete the keyword
+                const [deleteKeyword] = await connection.execute(
+                    "DELETE FROM keywords WHERE id = ?",
+                    [keyword_id]
+                );
+
+                if (deleteKeyword.affectedRows === 0) {
+                    throw new Error("Keyword not found or already deleted");
+                }
+
+                console.log("Keyword deleted successfully");
+
+                // Commit transaction
+                await commitTransaction(connection);
+                connection = null; // 연결이 이미 해제됨
+
+                res.status(200).json({
+                    success: true,
+                    message: `Keyword "${keywordText}" and all associated data deleted successfully`,
+                });
+
+            } catch (deleteError) {
+                // Rollback on error
+                if (connection) {
+                    await rollbackTransaction(connection);
+                    connection = null;
+                }
+                console.error("Error during deletion, transaction rolled back:", deleteError);
+                throw deleteError;
+            }
+
         } catch (error) {
             console.error("Delete keyword error:", error);
+            
+            // Make sure to rollback if something went wrong
+            if (connection) {
+                try {
+                    await rollbackTransaction(connection);
+                } catch (rollbackError) {
+                    console.error("Rollback error:", rollbackError);
+                }
+            }
+
             res.status(500).json({
                 success: false,
-                message: "Failed to delete keyword",
+                message: "Failed to delete keyword: " + error.message,
                 error: error.message,
             });
         }

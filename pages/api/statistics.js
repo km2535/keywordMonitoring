@@ -1,144 +1,102 @@
-import { executeQuery } from "../../lib/database";
+// pages/api/statistics.js - 최적화된 버전
+import { executeQuery, getPoolStatus } from "../../lib/database";
 
 export default async function handler(req, res) {
     if (req.method !== "GET") {
         return res.status(405).json({ message: "Method not allowed" });
     }
 
+    let startTime = Date.now();
+    
     try {
         const { category } = req.query;
-        
         console.log("Statistics API called with category:", category);
+        console.log("Pool status before:", getPoolStatus());
 
-        let whereClause = "";
-        let params = [];
+        // 단일 복합 쿼리로 모든 통계를 한 번에 계산
+        const statsQuery = `
+            WITH latest_scan_results AS (
+                SELECT 
+                    k.id as keyword_id,
+                    c.name as category_name,
+                    c.display_name as category_display_name,
+                    COUNT(ku.id) as total_urls_scanned,
+                    COALESCE(SUM(CASE WHEN usd.is_exposed = 1 THEN 1 ELSE 0 END), 0) as exposed_urls_count,
+                    COALESCE(SUM(CASE WHEN usd.is_exposed = 0 THEN 1 ELSE 0 END), 0) as hidden_urls_count,
+                    COALESCE(SUM(CASE WHEN usd.is_exposed IS NULL THEN 1 ELSE 0 END), 0) as error_urls_count,
+                    CASE 
+                        WHEN COUNT(ku.id) = 0 THEN 0
+                        ELSE ROUND((SUM(CASE WHEN usd.is_exposed = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(ku.id)), 2)
+                    END as exposure_rate_percent,
+                    MAX(usd.scanned_at) as scanned_at
+                FROM keywords k
+                JOIN categories c ON k.category_id = c.id
+                LEFT JOIN keyword_urls ku ON k.id = ku.keyword_id AND ku.is_active = 1
+                LEFT JOIN (
+                    SELECT 
+                        usd.*,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY usd.keyword_url_id 
+                            ORDER BY usd.scanned_at DESC
+                        ) as rn
+                    FROM url_scan_details usd
+                    JOIN scan_results sr ON usd.scan_result_id = sr.id
+                    JOIN scan_sessions ss ON sr.session_id = ss.id
+                    WHERE ss.scan_status = 'completed'
+                ) usd ON ku.id = usd.keyword_url_id AND usd.rn = 1
+                WHERE k.is_active = 1 AND c.is_active = 1
+                ${category && category !== "all" ? "AND c.name = ?" : ""}
+                GROUP BY k.id, c.name, c.display_name
+            ),
+            aggregated_stats AS (
+                SELECT 
+                    lsr.category_name,
+                    lsr.category_display_name,
+                    COALESCE(SUM(lsr.total_urls_scanned), 0) as total_urls,
+                    COALESCE(SUM(lsr.exposed_urls_count), 0) as exposed_urls,
+                    COALESCE(SUM(lsr.hidden_urls_count), 0) as hidden_urls,
+                    COALESCE(SUM(lsr.error_urls_count), 0) as error_urls,
+                    COUNT(DISTINCT lsr.keyword_id) as total_keywords,
+                    COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned > 0 THEN lsr.keyword_id END) as keywords_with_urls,
+                    COUNT(DISTINCT CASE WHEN lsr.exposed_urls_count > 0 THEN lsr.keyword_id END) as exposed_keywords,
+                    COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned > 0 AND lsr.exposed_urls_count = 0 THEN lsr.keyword_id END) as not_exposed_keywords,
+                    COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned = 0 THEN lsr.keyword_id END) as no_url_keywords,
+                    COALESCE(AVG(lsr.exposure_rate_percent), 0) as avg_exposure_rate,
+                    MAX(lsr.scanned_at) as last_scan_time
+                FROM latest_scan_results lsr
+                GROUP BY lsr.category_name, lsr.category_display_name
+            )
+            SELECT 
+                ${category === "all" || !category ? "'all'" : "category_name"} as category_name,
+                ${category === "all" || !category ? "'전체'" : "category_display_name"} as category_display_name,
+                SUM(total_urls) as total_urls,
+                SUM(exposed_urls) as exposed_urls,
+                SUM(hidden_urls) as hidden_urls,
+                SUM(error_urls) as error_urls,
+                SUM(total_keywords) as total_keywords,
+                SUM(keywords_with_urls) as keywords_with_urls,
+                SUM(exposed_keywords) as exposed_keywords,
+                SUM(not_exposed_keywords) as not_exposed_keywords,
+                SUM(no_url_keywords) as no_url_keywords,
+                AVG(avg_exposure_rate) as avg_exposure_rate,
+                MAX(last_scan_time) as last_scan_time
+            FROM aggregated_stats
+            ${category === "all" || !category ? "" : "WHERE category_name = ?"}
+            ${category === "all" || !category ? "" : "GROUP BY category_name, category_display_name"}
+        `;
 
+        const params = [];
         if (category && category !== "all") {
-            whereClause = "WHERE lsr.category_name = ?";
             params.push(category);
+            if (category !== "all") {
+                params.push(category);
+            }
         }
 
-        // 먼저 뷰가 존재하는지 확인하고, 없으면 직접 쿼리 사용
-        let statisticsQuery;
-        
-        try {
-            // 뷰를 사용한 쿼리 시도
-            if (category === "all" || !category) {
-                statisticsQuery = `
-                    SELECT 
-                        'all' as category_name,
-                        '전체' as category_display_name,
-                        COALESCE(SUM(lsr.total_urls_scanned), 0) as total_urls,
-                        COALESCE(SUM(lsr.exposed_urls_count), 0) as exposed_urls,
-                        COALESCE(SUM(lsr.hidden_urls_count), 0) as hidden_urls,
-                        COALESCE(SUM(lsr.error_urls_count), 0) as error_urls,
-                        COUNT(DISTINCT lsr.keyword_id) as total_keywords,
-                        COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned > 0 THEN lsr.keyword_id END) as keywords_with_urls,
-                        COUNT(DISTINCT CASE WHEN lsr.exposed_urls_count > 0 THEN lsr.keyword_id END) as exposed_keywords,
-                        COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned > 0 AND lsr.exposed_urls_count = 0 THEN lsr.keyword_id END) as not_exposed_keywords,
-                        COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned = 0 THEN lsr.keyword_id END) as no_url_keywords,
-                        COALESCE(AVG(lsr.exposure_rate_percent), 0) as avg_exposure_rate,
-                        MAX(lsr.scanned_at) as last_scan_time
-                    FROM v_latest_scan_results lsr
-                    ${whereClause}
-                `;
-            } else {
-                statisticsQuery = `
-                    SELECT 
-                        lsr.category_name,
-                        lsr.category_display_name,
-                        COALESCE(SUM(lsr.total_urls_scanned), 0) as total_urls,
-                        COALESCE(SUM(lsr.exposed_urls_count), 0) as exposed_urls,
-                        COALESCE(SUM(lsr.hidden_urls_count), 0) as hidden_urls,
-                        COALESCE(SUM(lsr.error_urls_count), 0) as error_urls,
-                        COUNT(DISTINCT lsr.keyword_id) as total_keywords,
-                        COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned > 0 THEN lsr.keyword_id END) as keywords_with_urls,
-                        COUNT(DISTINCT CASE WHEN lsr.exposed_urls_count > 0 THEN lsr.keyword_id END) as exposed_keywords,
-                        COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned > 0 AND lsr.exposed_urls_count = 0 THEN lsr.keyword_id END) as not_exposed_keywords,
-                        COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned = 0 THEN lsr.keyword_id END) as no_url_keywords,
-                        COALESCE(AVG(lsr.exposure_rate_percent), 0) as avg_exposure_rate,
-                        MAX(lsr.scanned_at) as last_scan_time
-                    FROM v_latest_scan_results lsr
-                    ${whereClause}
-                    GROUP BY lsr.category_name, lsr.category_display_name
-                `;
-            }
-            
-            const stats = await executeQuery(statisticsQuery, params);
-            console.log("Stats from view:", stats);
-            
-        } catch (viewError) {
-            console.log("View query failed, falling back to direct query:", viewError.message);
-            
-            // 뷰가 없으면 직접 쿼리 사용
-            if (category === "all" || !category) {
-                statisticsQuery = `
-                    SELECT 
-                        'all' as category_name,
-                        '전체' as category_display_name,
-                        COALESCE(SUM(sr.total_urls_scanned), 0) as total_urls,
-                        COALESCE(SUM(sr.exposed_urls_count), 0) as exposed_urls,
-                        COALESCE(SUM(sr.hidden_urls_count), 0) as hidden_urls,
-                        COALESCE(SUM(sr.error_urls_count), 0) as error_urls,
-                        COUNT(DISTINCT k.id) as total_keywords,
-                        COUNT(DISTINCT CASE WHEN sr.total_urls_scanned > 0 THEN k.id END) as keywords_with_urls,
-                        COUNT(DISTINCT CASE WHEN sr.exposed_urls_count > 0 THEN k.id END) as exposed_keywords,
-                        COUNT(DISTINCT CASE WHEN sr.total_urls_scanned > 0 AND sr.exposed_urls_count = 0 THEN k.id END) as not_exposed_keywords,
-                        COUNT(DISTINCT CASE WHEN ku.id IS NULL THEN k.id END) as no_url_keywords,
-                        COALESCE(AVG(CASE WHEN sr.total_urls_scanned > 0 THEN (sr.exposed_urls_count * 100.0 / sr.total_urls_scanned) END), 0) as avg_exposure_rate,
-                        MAX(sr.scanned_at) as last_scan_time
-                    FROM keywords k
-                    JOIN categories c ON k.category_id = c.id
-                    LEFT JOIN keyword_urls ku ON k.id = ku.keyword_id AND ku.is_active = 1
-                    LEFT JOIN (
-                        SELECT 
-                            sr.*,
-                            ROW_NUMBER() OVER (PARTITION BY sr.keyword_id ORDER BY sr.scanned_at DESC) as rn
-                        FROM scan_results sr
-                        JOIN scan_sessions ss ON sr.session_id = ss.id
-                        WHERE ss.scan_status = 'completed'
-                    ) sr ON k.id = sr.keyword_id AND sr.rn = 1
-                    WHERE k.is_active = 1 AND c.is_active = 1
-                    ${category && category !== "all" ? "AND c.name = ?" : ""}
-                `;
-            } else {
-                statisticsQuery = `
-                    SELECT 
-                        c.name as category_name,
-                        c.display_name as category_display_name,
-                        COALESCE(SUM(sr.total_urls_scanned), 0) as total_urls,
-                        COALESCE(SUM(sr.exposed_urls_count), 0) as exposed_urls,
-                        COALESCE(SUM(sr.hidden_urls_count), 0) as hidden_urls,
-                        COALESCE(SUM(sr.error_urls_count), 0) as error_urls,
-                        COUNT(DISTINCT k.id) as total_keywords,
-                        COUNT(DISTINCT CASE WHEN sr.total_urls_scanned > 0 THEN k.id END) as keywords_with_urls,
-                        COUNT(DISTINCT CASE WHEN sr.exposed_urls_count > 0 THEN k.id END) as exposed_keywords,
-                        COUNT(DISTINCT CASE WHEN sr.total_urls_scanned > 0 AND sr.exposed_urls_count = 0 THEN k.id END) as not_exposed_keywords,
-                        COUNT(DISTINCT CASE WHEN ku.id IS NULL THEN k.id END) as no_url_keywords,
-                        COALESCE(AVG(CASE WHEN sr.total_urls_scanned > 0 THEN (sr.exposed_urls_count * 100.0 / sr.total_urls_scanned) END), 0) as avg_exposure_rate,
-                        MAX(sr.scanned_at) as last_scan_time
-                    FROM categories c
-                    JOIN keywords k ON c.id = k.category_id
-                    LEFT JOIN keyword_urls ku ON k.id = ku.keyword_id AND ku.is_active = 1
-                    LEFT JOIN (
-                        SELECT 
-                            sr.*,
-                            ROW_NUMBER() OVER (PARTITION BY sr.keyword_id ORDER BY sr.scanned_at DESC) as rn
-                        FROM scan_results sr
-                        JOIN scan_sessions ss ON sr.session_id = ss.id
-                        WHERE ss.scan_status = 'completed'
-                    ) sr ON k.id = sr.keyword_id AND sr.rn = 1
-                    WHERE k.is_active = 1 AND c.is_active = 1 AND c.name = ?
-                    GROUP BY c.name, c.display_name
-                `;
-            }
-            
-            const stats = await executeQuery(statisticsQuery, params);
-            console.log("Stats from direct query:", stats);
-        }
+        console.log("Executing optimized statistics query...");
+        const stats = await executeQuery(statsQuery, params);
+        console.log(`Statistics query completed in ${Date.now() - startTime}ms`);
 
-        const stats = await executeQuery(statisticsQuery, params);
-        
         // 기본값 설정
         const stat = stats[0] || {
             total_keywords: 0,
@@ -153,17 +111,10 @@ export default async function handler(req, res) {
             avg_exposure_rate: 0,
         };
 
-        console.log("Final stat object:", stat);
+        const exposureSuccessRate = stat.keywords_with_urls > 0
+            ? Math.round((stat.exposed_keywords / stat.keywords_with_urls) * 100)
+            : 0;
 
-        // Calculate success rate
-        const exposureSuccessRate =
-            stat.keywords_with_urls > 0
-                ? Math.round(
-                      (stat.exposed_keywords / stat.keywords_with_urls) * 100
-                  )
-                : 0;
-
-        // Prepare chart data
         const exposureStatsData = [
             { name: "노출됨", value: parseInt(stat.exposed_keywords) || 0 },
             { name: "노출 안됨", value: parseInt(stat.not_exposed_keywords) || 0 },
@@ -186,82 +137,66 @@ export default async function handler(req, res) {
             exposureStatsData,
         };
 
-        console.log("Final summary:", summary);
-
-        // If requesting all categories, also get individual category stats
+        // 카테고리별 데이터는 요청시에만 가져오기
         let categoryData = {};
         if (category === "all" || !category) {
             try {
-                // 먼저 뷰를 사용해보고, 실패하면 직접 쿼리 사용
-                let categoryStatsQuery;
-                try {
-                    categoryStatsQuery = `
+                const categoryStatsQuery = `
+                    WITH latest_scan_results AS (
                         SELECT 
-                            lsr.category_name,
-                            lsr.category_display_name,
-                            COALESCE(SUM(lsr.total_urls_scanned), 0) as total_urls,
-                            COALESCE(SUM(lsr.exposed_urls_count), 0) as exposed_urls,
-                            COALESCE(SUM(lsr.hidden_urls_count), 0) as hidden_urls,
-                            COALESCE(SUM(lsr.error_urls_count), 0) as error_urls,
-                            COUNT(DISTINCT lsr.keyword_id) as total_keywords,
-                            COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned > 0 THEN lsr.keyword_id END) as keywords_with_urls,
-                            COUNT(DISTINCT CASE WHEN lsr.exposed_urls_count > 0 THEN lsr.keyword_id END) as exposed_keywords,
-                            COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned > 0 AND lsr.exposed_urls_count = 0 THEN lsr.keyword_id END) as not_exposed_keywords,
-                            COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned = 0 THEN lsr.keyword_id END) as no_url_keywords,
-                            COALESCE(AVG(lsr.exposure_rate_percent), 0) as avg_exposure_rate,
-                            MAX(lsr.scanned_at) as last_scan_time
-                        FROM v_latest_scan_results lsr
-                        GROUP BY lsr.category_name, lsr.category_display_name
-                        ORDER BY lsr.category_name
-                    `;
-                    const categoryStats = await executeQuery(categoryStatsQuery);
-                    console.log("Category stats from view:", categoryStats);
-                } catch (viewError) {
-                    console.log("Category view query failed, using direct query");
-                    categoryStatsQuery = `
-                        SELECT 
+                            k.id as keyword_id,
                             c.name as category_name,
                             c.display_name as category_display_name,
-                            COALESCE(SUM(sr.total_urls_scanned), 0) as total_urls,
-                            COALESCE(SUM(sr.exposed_urls_count), 0) as exposed_urls,
-                            COALESCE(SUM(sr.hidden_urls_count), 0) as hidden_urls,
-                            COALESCE(SUM(sr.error_urls_count), 0) as error_urls,
-                            COUNT(DISTINCT k.id) as total_keywords,
-                            COUNT(DISTINCT CASE WHEN sr.total_urls_scanned > 0 THEN k.id END) as keywords_with_urls,
-                            COUNT(DISTINCT CASE WHEN sr.exposed_urls_count > 0 THEN k.id END) as exposed_keywords,
-                            COUNT(DISTINCT CASE WHEN sr.total_urls_scanned > 0 AND sr.exposed_urls_count = 0 THEN k.id END) as not_exposed_keywords,
-                            COUNT(DISTINCT CASE WHEN ku.id IS NULL THEN k.id END) as no_url_keywords,
-                            COALESCE(AVG(CASE WHEN sr.total_urls_scanned > 0 THEN (sr.exposed_urls_count * 100.0 / sr.total_urls_scanned) END), 0) as avg_exposure_rate,
-                            MAX(sr.scanned_at) as last_scan_time
-                        FROM categories c
-                        JOIN keywords k ON c.id = k.category_id
+                            COUNT(ku.id) as total_urls_scanned,
+                            COALESCE(SUM(CASE WHEN usd.is_exposed = 1 THEN 1 ELSE 0 END), 0) as exposed_urls_count,
+                            COALESCE(SUM(CASE WHEN usd.is_exposed = 0 THEN 1 ELSE 0 END), 0) as hidden_urls_count,
+                            COALESCE(SUM(CASE WHEN usd.is_exposed IS NULL THEN 1 ELSE 0 END), 0) as error_urls_count,
+                            CASE 
+                                WHEN COUNT(ku.id) = 0 THEN 0
+                                ELSE ROUND((SUM(CASE WHEN usd.is_exposed = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(ku.id)), 2)
+                            END as exposure_rate_percent
+                        FROM keywords k
+                        JOIN categories c ON k.category_id = c.id
                         LEFT JOIN keyword_urls ku ON k.id = ku.keyword_id AND ku.is_active = 1
                         LEFT JOIN (
                             SELECT 
-                                sr.*,
-                                ROW_NUMBER() OVER (PARTITION BY sr.keyword_id ORDER BY sr.scanned_at DESC) as rn
-                            FROM scan_results sr
+                                usd.*,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY usd.keyword_url_id 
+                                    ORDER BY usd.scanned_at DESC
+                                ) as rn
+                            FROM url_scan_details usd
+                            JOIN scan_results sr ON usd.scan_result_id = sr.id
                             JOIN scan_sessions ss ON sr.session_id = ss.id
                             WHERE ss.scan_status = 'completed'
-                        ) sr ON k.id = sr.keyword_id AND sr.rn = 1
+                        ) usd ON ku.id = usd.keyword_url_id AND usd.rn = 1
                         WHERE k.is_active = 1 AND c.is_active = 1
-                        GROUP BY c.name, c.display_name
-                        ORDER BY c.name
-                    `;
-                }
+                        GROUP BY k.id, c.name, c.display_name
+                    )
+                    SELECT 
+                        category_name,
+                        category_display_name,
+                        COALESCE(SUM(total_urls_scanned), 0) as total_urls,
+                        COALESCE(SUM(exposed_urls_count), 0) as exposed_urls,
+                        COALESCE(SUM(hidden_urls_count), 0) as hidden_urls,
+                        COALESCE(SUM(error_urls_count), 0) as error_urls,
+                        COUNT(DISTINCT keyword_id) as total_keywords,
+                        COUNT(DISTINCT CASE WHEN total_urls_scanned > 0 THEN keyword_id END) as keywords_with_urls,
+                        COUNT(DISTINCT CASE WHEN exposed_urls_count > 0 THEN keyword_id END) as exposed_keywords,
+                        COUNT(DISTINCT CASE WHEN total_urls_scanned > 0 AND exposed_urls_count = 0 THEN keyword_id END) as not_exposed_keywords,
+                        COUNT(DISTINCT CASE WHEN total_urls_scanned = 0 THEN keyword_id END) as no_url_keywords,
+                        COALESCE(AVG(exposure_rate_percent), 0) as avg_exposure_rate
+                    FROM latest_scan_results
+                    GROUP BY category_name, category_display_name
+                    ORDER BY category_name
+                `;
 
                 const categoryStats = await executeQuery(categoryStatsQuery);
-                console.log("Category stats:", categoryStats);
-
+                
                 categoryStats.forEach((catStat) => {
-                    const catSuccessRate =
-                        catStat.keywords_with_urls > 0
-                            ? Math.round(
-                                  (catStat.exposed_keywords /
-                                      catStat.keywords_with_urls) *
-                                      100
-                              )
-                            : 0;
+                    const catSuccessRate = catStat.keywords_with_urls > 0
+                        ? Math.round((catStat.exposed_keywords / catStat.keywords_with_urls) * 100)
+                        : 0;
 
                     categoryData[catStat.category_name] = {
                         summary: {
@@ -275,23 +210,12 @@ export default async function handler(req, res) {
                             hiddenUrls: parseInt(catStat.hidden_urls) || 0,
                             errorUrls: parseInt(catStat.error_urls) || 0,
                             exposureSuccessRate: catSuccessRate,
-                            averageExposureRate: Math.round(
-                                parseFloat(catStat.avg_exposure_rate) || 0
-                            ),
+                            averageExposureRate: Math.round(parseFloat(catStat.avg_exposure_rate) || 0),
                             lastScanTime: catStat.last_scan_time,
                             exposureStatsData: [
-                                {
-                                    name: "노출됨",
-                                    value: parseInt(catStat.exposed_keywords) || 0,
-                                },
-                                {
-                                    name: "노출 안됨",
-                                    value: parseInt(catStat.not_exposed_keywords) || 0,
-                                },
-                                {
-                                    name: "URL 없음",
-                                    value: parseInt(catStat.no_url_keywords) || 0,
-                                },
+                                { name: "노출됨", value: parseInt(catStat.exposed_keywords) || 0 },
+                                { name: "노출 안됨", value: parseInt(catStat.not_exposed_keywords) || 0 },
+                                { name: "URL 없음", value: parseInt(catStat.no_url_keywords) || 0 },
                             ],
                         },
                     };
@@ -301,7 +225,10 @@ export default async function handler(req, res) {
             }
         }
 
-        const response = {
+        console.log("Pool status after:", getPoolStatus());
+        console.log(`Total execution time: ${Date.now() - startTime}ms`);
+
+        res.status(200).json({
             success: true,
             data: {
                 summary,
@@ -309,18 +236,17 @@ export default async function handler(req, res) {
                 allSummary: summary,
                 timestamp: new Date().toISOString(),
             },
-        };
+            executionTime: Date.now() - startTime,
+        });
 
-        console.log("Final API response:", JSON.stringify(response, null, 2));
-        res.status(200).json(response);
-        
     } catch (error) {
         console.error("Statistics API error:", error);
+        console.log("Pool status on error:", getPoolStatus());
         res.status(500).json({
             success: false,
             message: "Failed to fetch statistics",
             error: error.message,
-            stack: error.stack,
+            executionTime: Date.now() - startTime,
         });
     }
 }

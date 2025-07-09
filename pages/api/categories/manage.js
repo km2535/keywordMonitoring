@@ -1,4 +1,4 @@
-// pages/api/categories/manage.js - 정리된 버전
+// pages/api/categories/manage.js - 외래 키 제약 조건 해결된 버전
 import { 
     executeQuery, 
     startTransaction, 
@@ -125,7 +125,7 @@ export default async function handler(req, res) {
             });
         }
     } else if (req.method === "DELETE") {
-        // Delete category with cascading delete support
+        // Delete category with cascading delete support - 외래 키 제약 조건 해결
         let connection = null;
         
         try {
@@ -162,7 +162,7 @@ export default async function handler(req, res) {
             const keywordCount = keywordCheck[0].count;
             console.log(`Category has ${keywordCount} associated keywords`);
 
-            // Start transaction using new function
+            // Start transaction
             connection = await startTransaction();
 
             try {
@@ -189,7 +189,7 @@ export default async function handler(req, res) {
                             const urlIds = keywordUrls.map(url => url.id);
                             const urlPlaceholders = urlIds.map(() => '?').join(',');
 
-                            // Delete URL scan details first (deepest level)
+                            // Delete url_scan_details first (deepest level)
                             try {
                                 const [deleteScanDetails] = await connection.execute(
                                     `DELETE FROM url_scan_details WHERE keyword_url_id IN (${urlPlaceholders})`,
@@ -199,9 +199,31 @@ export default async function handler(req, res) {
                             } catch (scanError) {
                                 console.log("URL scan details deletion skipped:", scanError.message);
                             }
+
+                            // Delete exposure_logs that reference keyword_urls - 🔥 중요한 추가!
+                            try {
+                                const [deleteExposureLogs] = await connection.execute(
+                                    `DELETE FROM exposure_logs WHERE keyword_url_id IN (${urlPlaceholders})`,
+                                    urlIds
+                                );
+                                console.log(`Deleted ${deleteExposureLogs.affectedRows} exposure_logs (by keyword_url_id)`);
+                            } catch (exposureError) {
+                                console.log("Exposure logs deletion skipped:", exposureError.message);
+                            }
                         }
 
-                        // Delete scan results (if table exists)
+                        // Delete exposure_logs that directly reference keywords - 추가 안전 장치
+                        try {
+                            const [deleteKeywordExposureLogs] = await connection.execute(
+                                `DELETE FROM exposure_logs WHERE keyword_id IN (${keywordPlaceholders})`,
+                                keywordIdList
+                            );
+                            console.log(`Deleted ${deleteKeywordExposureLogs.affectedRows} exposure_logs (by keyword_id)`);
+                        } catch (exposureError) {
+                            console.log("Keyword exposure logs deletion skipped:", exposureError.message);
+                        }
+
+                        // Delete scan_results (if table exists)
                         try {
                             const [deleteScanResults] = await connection.execute(
                                 `DELETE FROM scan_results WHERE keyword_id IN (${keywordPlaceholders})`,

@@ -1,4 +1,4 @@
-// pages/api/keywords/manage.js - 정리된 버전
+// pages/api/keywords/manage.js - 외래 키 제약 조건 해결된 버전
 import { 
     executeQuery, 
     startTransaction, 
@@ -133,7 +133,7 @@ export default async function handler(req, res) {
             });
         }
     } else if (req.method === "DELETE") {
-        // Delete keyword with proper cascade deletion
+        // Delete keyword with proper cascade deletion - 외래 키 제약 조건 해결
         let connection = null;
         
         try {
@@ -163,7 +163,7 @@ export default async function handler(req, res) {
 
             const keywordText = keywordInfo[0].keyword_text;
 
-            // Start transaction using new function
+            // Start transaction
             connection = await startTransaction();
 
             try {
@@ -190,7 +190,18 @@ export default async function handler(req, res) {
                         console.log("url_scan_details deletion skipped (table might not exist):", scanError.message);
                     }
 
-                    // Step 3: Delete keyword_urls
+                    // Step 3: Delete exposure_logs that reference keyword_urls - 🔥 이 부분이 누락되어 있었음!
+                    try {
+                        const [deleteExposureLogs] = await connection.execute(
+                            `DELETE FROM exposure_logs WHERE keyword_url_id IN (${placeholders})`,
+                            urlIds
+                        );
+                        console.log(`Deleted ${deleteExposureLogs.affectedRows} exposure_logs records`);
+                    } catch (exposureError) {
+                        console.log("exposure_logs deletion skipped (table might not exist):", exposureError.message);
+                    }
+
+                    // Step 4: Delete keyword_urls
                     const [deleteUrls] = await connection.execute(
                         `DELETE FROM keyword_urls WHERE keyword_id = ?`,
                         [keyword_id]
@@ -198,7 +209,7 @@ export default async function handler(req, res) {
                     console.log(`Deleted ${deleteUrls.affectedRows} keyword_urls records`);
                 }
 
-                // Step 4: Delete scan_results that directly reference the keyword
+                // Step 5: Delete scan_results that directly reference the keyword
                 try {
                     const [deleteScanResults] = await connection.execute(
                         "DELETE FROM scan_results WHERE keyword_id = ?",
@@ -209,7 +220,18 @@ export default async function handler(req, res) {
                     console.log("scan_results deletion skipped (table might not exist):", scanError.message);
                 }
 
-                // Step 5: Finally delete the keyword
+                // Step 6: Delete exposure_logs that directly reference the keyword - 추가 안전 장치
+                try {
+                    const [deleteKeywordExposureLogs] = await connection.execute(
+                        "DELETE FROM exposure_logs WHERE keyword_id = ?",
+                        [keyword_id]
+                    );
+                    console.log(`Deleted ${deleteKeywordExposureLogs.affectedRows} additional exposure_logs records`);
+                } catch (exposureError) {
+                    console.log("keyword exposure_logs deletion skipped:", exposureError.message);
+                }
+
+                // Step 7: Finally delete the keyword
                 const [deleteKeyword] = await connection.execute(
                     "DELETE FROM keywords WHERE id = ?",
                     [keyword_id]

@@ -1,5 +1,7 @@
+// components/KeywordDashboard/index.jsx - 대량 등록 기능 추가
 import { useState } from "react";
 import useKeywordData from "../../hooks/useKeywordData";
+import BulkKeywordModal from "../Admin/BulkKeywordModal";
 import {
     CategorySelector,
     ErrorMessage,
@@ -270,7 +272,7 @@ const KeywordAddModal = ({ isOpen, onClose, categories, onSuccess }) => {
 };
 
 // 헤더 액션 버튼들
-const HeaderActions = ({ onAddKeyword, onRefresh }) => {
+const HeaderActions = ({ onAddKeyword, onBulkAdd, onRefresh }) => {
     const [showDropdown, setShowDropdown] = useState(false);
 
     const menuItems = [
@@ -282,6 +284,17 @@ const HeaderActions = ({ onAddKeyword, onRefresh }) => {
 
     return (
         <div className="flex items-center gap-3">
+            {/* 대량 등록 버튼 */}
+            <button
+                onClick={onBulkAdd}
+                className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-green-600 to-green-700 border border-transparent rounded-lg text-sm font-medium text-white hover:from-green-700 hover:to-green-800 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-all shadow-sm"
+            >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+                </svg>
+                대량 등록
+            </button>
+
             {/* 키워드 추가 버튼 */}
             <button
                 onClick={onAddKeyword}
@@ -395,56 +408,6 @@ const QuickStats = ({ summary }) => {
     );
 };
 
-// 디버깅 정보 (개발 중에만 표시)
-const DebugInfo = ({ data, activeCategory, categories }) => {
-    const [isExpanded, setIsExpanded] = useState(false);
-
-    if (process.env.NODE_ENV !== 'development') {
-        return null;
-    }
-
-    return (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-            <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="flex items-center justify-between w-full text-left"
-            >
-                <span className="font-medium text-yellow-800">
-                    🐛 디버깅 정보 {isExpanded ? '접기' : '펼치기'}
-                </span>
-                <span className="text-yellow-600">{isExpanded ? '▼' : '▶'}</span>
-            </button>
-
-            {isExpanded && (
-                <div className="mt-4 space-y-3 text-sm">
-                    <div>
-                        <strong>현재 카테고리:</strong>
-                        <span className="ml-2 font-mono bg-yellow-100 px-2 py-1 rounded">{activeCategory}</span>
-                    </div>
-                    <div>
-                        <strong>카테고리 목록:</strong>
-                        <div className="ml-2 mt-1">
-                            {Object.entries(categories).map(([id, category]) => (
-                                <div key={id} className="font-mono text-xs bg-yellow-100 px-2 py-1 rounded mb-1">
-                                    {id} → {category.name}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                    <div>
-                        <strong>데이터 요약:</strong>
-                        <div className="ml-2 mt-1 font-mono text-xs bg-yellow-100 px-2 py-1 rounded">
-                            키워드: {data?.summary?.totalKeywords || 0} | 
-                            노출: {data?.summary?.exposedKeywords || 0} | 
-                            데이터 길이: {data?.keywordsData?.length || 0}
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-};
-
 // 메인 대시보드 컴포넌트
 const TABS = [
     { id: "summary", label: "📊 요약" },
@@ -464,6 +427,7 @@ const KeywordDashboard = () => {
     
     const [activeTab, setActiveTab] = useState("summary");
     const [showAddModal, setShowAddModal] = useState(false);
+    const [showBulkModal, setShowBulkModal] = useState(false);
 
     const handleRefresh = () => {
         window.location.reload();
@@ -546,6 +510,7 @@ const KeywordDashboard = () => {
                         
                         <HeaderActions 
                             onAddKeyword={() => setShowAddModal(true)}
+                            onBulkAdd={() => setShowBulkModal(true)}
                             onRefresh={handleRefresh}
                         />
                     </div>
@@ -557,13 +522,6 @@ const KeywordDashboard = () => {
                 {/* 메인 콘텐츠 */}
                 <div className="bg-white rounded-2xl shadow-lg border border-gray-100">
                     <div className="p-6">
-                        {/* 디버깅 정보 */}
-                        <DebugInfo 
-                            data={data}
-                            activeCategory={activeCategory}
-                            categories={categories}
-                        />
-
                         {/* 카테고리 선택기 */}
                         <CategorySelector
                             activeCategory={activeCategory}
@@ -613,10 +571,17 @@ const KeywordDashboard = () => {
                                         </p>
                                         <div className="flex justify-center gap-4">
                                             <button
+                                                onClick={() => setShowBulkModal(true)}
+                                                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                                            >
+                                                대량 등록하기
+                                            </button>
+                                            <button
                                                 onClick={() => setShowAddModal(true)}
                                                 className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
                                             >
-                                                </button>
+                                                키워드 추가하기
+                                            </button>
                                             <a
                                                 href="/admin/categories"
                                                 className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
@@ -648,12 +613,20 @@ const KeywordDashboard = () => {
                                         <p className="text-gray-600 mb-8 max-w-md mx-auto">
                                             새로운 키워드를 추가하여 모니터링을 시작하세요.
                                         </p>
-                                        <button
-                                            onClick={() => setShowAddModal(true)}
-                                            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                                        >
-                                            키워드 추가하기
-                                        </button>
+                                        <div className="flex justify-center gap-4">
+                                            <button
+                                                onClick={() => setShowBulkModal(true)}
+                                                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                                            >
+                                                대량 등록하기
+                                            </button>
+                                            <button
+                                                onClick={() => setShowAddModal(true)}
+                                                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                                            >
+                                                키워드 추가하기
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -665,6 +638,14 @@ const KeywordDashboard = () => {
                 <KeywordAddModal
                     isOpen={showAddModal}
                     onClose={() => setShowAddModal(false)}
+                    categories={categories}
+                    onSuccess={handleKeywordAdded}
+                />
+
+                {/* 대량 등록 모달 */}
+                <BulkKeywordModal
+                    isOpen={showBulkModal}
+                    onClose={() => setShowBulkModal(false)}
                     categories={categories}
                     onSuccess={handleKeywordAdded}
                 />

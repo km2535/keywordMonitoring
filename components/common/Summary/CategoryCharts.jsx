@@ -1,87 +1,48 @@
 // km2535/keywordmonitoring/keywordMonitoring-8c41bec05c035d38efa4883755f1f3bcf44c30e1/components/common/Summary/CategoryCharts.jsx
 import {
-    Chart as ChartJS,
-    ArcElement,
+    PieChart,
+    Pie,
     Tooltip,
     Legend,
-    CategoryScale,
-    LinearScale,
-} from "chart.js";
-import { Pie } from "recharts";
-
-// Chart.js 모듈 등록
-ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale);
+    Cell,
+    ResponsiveContainer,
+} from "recharts";
 
 /**
  * Component for displaying summary charts by category
  */
-const CategoryCharts = ({ rawData, categories }) => { // categories는 { 'all': {}, 'R1': {}, ...} 형태
+const CategoryCharts = ({ rawData, categories, activeCategory }) => { // activeCategory prop 추가
     if (!rawData || !rawData.categoryData) {
-        return null;
+        return null; // 데이터가 없을 때 null을 반환하여 부모 컴포넌트에서 로딩 상태를 처리하도록 함
     }
 
     const categoryData = rawData.categoryData;
 
-    // 'all' 카테고리를 제외한 실제 'R' 값 카테고리만 필터링
-    const rCategories = Object.entries(categoryData).filter(([rValue]) => rValue !== 'all');
-
-    // 각 'R' 카테고리별 차트 데이터 생성
+    // recharts에 맞는 데이터 형식으로 변환
     const getChartData = (stats) => {
-        return {
-            labels: ["노출된 키워드", "노출 안된 키워드", "URL 없는 키워드"],
-            datasets: [
-                {
-                    data: [
-                        stats.exposedKeywords,
-                        stats.notExposedKeywords,
-                        stats.noUrlKeywords,
-                    ],
-                    backgroundColor: [
-                        "rgba(75, 192, 192, 0.6)", // exposed
-                        "rgba(255, 99, 132, 0.6)", // not exposed
-                        "rgba(200, 200, 200, 0.6)", // no URL
-                    ],
-                    borderColor: [
-                        "rgba(75, 192, 192, 1)",
-                        "rgba(255, 99, 132, 1)",
-                        "rgba(200, 200, 200, 1)",
-                    ],
-                    borderWidth: 1,
-                },
-            ],
-        };
+        return [
+            { name: "노출됨", value: stats.exposedKeywords, color: "#10b981" },
+            { name: "노출 안됨", value: stats.notExposedKeywords, color: "#f87171" },
+            { name: "URL 없음", value: stats.noUrlKeywords, color: "#6b7280" },
+        ];
     };
 
-    const chartOptions = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: {
-                position: "bottom",
-                labels: {
-                    font: {
-                        size: 12,
-                    },
-                },
-            },
-            tooltip: {
-                callbacks: {
-                    label: function (context) {
-                        const label = context.label || "";
-                        const value = context.parsed;
-                        const total = context.dataset.data.reduce((acc, val) => acc + val, 0);
-                        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                        return `${label}: ${value}개 (${percentage}%)`;
-                    },
-                },
-            },
-        },
-    };
+    let chartsToRender = [];
+    if (activeCategory === 'all') {
+        // 'all' 카테고리일 경우, 'all' 요약을 제외한 모든 R 카테고리를 표시
+        chartsToRender = Object.entries(categoryData).filter(([rValue]) => rValue !== 'all');
+    } else {
+        // 특정 카테고리가 선택되었을 경우 해당 카테고리만 표시
+        const selectedStats = categoryData[activeCategory];
+        if (selectedStats) {
+            chartsToRender.push([activeCategory, selectedStats]);
+        }
+    }
 
-    if (rCategories.length === 0) {
+    if (chartsToRender.length === 0) {
         return (
             <div className="bg-white p-6 rounded-lg shadow mb-6 text-center text-gray-500">
-                <p>표시할 카테고리별 차트 데이터가 없습니다.</p>
+                <p>선택한 카테고리에 대한 차트 데이터가 없습니다.</p>
             </div>
         );
     }
@@ -92,12 +53,33 @@ const CategoryCharts = ({ rawData, categories }) => { // categories는 { 'all': 
                 카테고리별 노출 현황 (파이 차트)
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {rCategories.map(([rValue, stats]) => (
+                {chartsToRender.map(([rValue, stats]) => (
                     <div key={rValue} className="p-4 border border-gray-200 rounded-lg shadow-sm">
-                        <h3 className="text-md font-bold text-gray-800 mb-3 text-center">{rValue}</h3>
+                        <h3 className="text-md font-bold text-gray-800 mb-3 text-center">
+                            {categories[rValue]?.display_name || rValue} {/* categories에서 display_name 가져오기 */}
+                        </h3>
                         <div className="h-64"> {/* 차트 높이 고정 */}
                             {stats.totalKeywords > 0 ? (
-                                <Pie data={getChartData(stats)} options={chartOptions} />
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie
+                                            data={getChartData(stats)}
+                                            dataKey="value"
+                                            nameKey="name"
+                                            cx="50%"
+                                            cy="50%"
+                                            outerRadius={80}
+                                            fill="#8884d8"
+                                            label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                                        >
+                                            {getChartData(stats).map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={entry.color} />
+                                            ))}
+                                        </Pie>
+                                        <Tooltip />
+                                        <Legend />
+                                    </PieChart>
+                                </ResponsiveContainer>
                             ) : (
                                 <div className="text-center py-8 text-gray-500">
                                     <p>해당 카테고리에 키워드가 없습니다.</p>

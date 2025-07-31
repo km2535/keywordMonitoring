@@ -178,8 +178,6 @@ const KeywordDashboard = () => {
         name: categories[id].name,
         display_name: categories[id].display_name,
     }));
-
-
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
             <div className="max-w-7xl mx-auto p-6">
@@ -241,10 +239,12 @@ const KeywordDashboard = () => {
                                                 <CategorySummaryTable
                                                     rawData={rawData}
                                                     categories={categories}
+                                                    activeCategory={activeCategory}
                                                 />
                                                 <CategoryCharts
                                                     rawData={rawData}
                                                     categories={categories}
+                                                    activeCategory={activeCategory}
                                                 />
                                             </>
                                         )}

@@ -4,7 +4,7 @@ import { exportSummaryToExcel } from "../../../utils/exportUtils"; // utils/expo
 /**
  * Component for displaying summary statistics by category
  */
-const CategorySummaryTable = ({ rawData, categories }) => {
+const CategorySummaryTable = ({ rawData, categories, activeCategory }) => {
     // rawData.categoryData는 이제 { 'R1': {stats}, 'R2': {stats}, ...} 형태
     // categories는 { 'all': {}, 'R1': {}, ... } 형태
     if (!rawData || !rawData.allSummary || !rawData.categoryData) {
@@ -13,7 +13,6 @@ const CategorySummaryTable = ({ rawData, categories }) => {
 
     const allSummary = rawData.allSummary;
     const categoryData = rawData.categoryData; // 'R' 값별 통계 데이터
-
     // Excel 내보내기 핸들러
     const handleExportSummary = () => {
         // exportSummaryToExcel 함수가 categoryData를 어떻게 처리하는지 확인 필요

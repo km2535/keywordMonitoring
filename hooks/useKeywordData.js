@@ -1,4 +1,4 @@
-// hooks/useKeywordData.js - 무한 로딩 해결된 버전
+// km2535/keywordmonitoring/keywordMonitoring-8c41bec05c035d38efa4883755f1f3bcf44c30e1/hooks/useKeywordData.js
 import { useEffect, useState, useCallback, useRef } from "react";
 
 const useKeywordData = () => {
@@ -6,24 +6,16 @@ const useKeywordData = () => {
     const [rawData, setRawData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [activeCategory, setActiveCategory] = useState("all");
-    const [categories, setCategories] = useState({});
-    
-    // 중복 요청 방지를 위한 ref
+    const [activeCategory, setActiveCategory] = useState("all"); // 초기값은 'all'
+    const [categories, setCategories] = useState({}); // 'all' 카테고리 포함
+
     const loadingRef = useRef(false);
     const abortControllerRef = useRef(null);
-    const categoriesLoadedRef = useRef(false);
 
-    // Categories 로드 함수 - 한 번만 실행되도록 수정
+    // Categories 로드 함수 - 이제 고정된 'all' 카테고리만 반환
     const loadCategories = useCallback(async () => {
-        if (categoriesLoadedRef.current || loadingRef.current) {
-            console.log("Categories already loaded or loading, skipping...");
-            return;
-        }
-
         try {
-            categoriesLoadedRef.current = true;
-            console.log("Loading categories...");
+            console.log("Loading categories (dynamic 'R' values from Notion)...");
             
             const response = await fetch("/api/categories");
             const result = await response.json();
@@ -33,21 +25,19 @@ const useKeywordData = () => {
             if (result.success && result.data) {
                 const categoriesMap = {};
                 result.data.forEach((cat) => {
-                    categoriesMap[cat.name] = {
-                        id: cat.name,
-                        name: cat.display_name,
-                        originalName: cat.name,
+                    categoriesMap[cat.id] = {
+                        id: cat.id,
+                        name: cat.name,
+                        display_name: cat.display_name,
                     };
                 });
                 console.log("Categories loaded successfully:", Object.keys(categoriesMap).length);
                 setCategories(categoriesMap);
                 return categoriesMap;
             } else {
-                console.warn("Categories API failed, using defaults");
+                console.warn("Categories API failed, using default 'all' category");
                 const defaultCategories = {
-                    cancer: { id: "cancer", name: "암 관련", originalName: "cancer" },
-                    diabetes: { id: "diabetes", name: "당뇨 관련", originalName: "diabetes" },
-                    beauty: { id: "beauty", name: "미용 관련", originalName: "beauty" },
+                    all: { id: "all", name: "전체 키워드", display_name: "전체 키워드" },
                 };
                 setCategories(defaultCategories);
                 return defaultCategories;
@@ -55,28 +45,25 @@ const useKeywordData = () => {
         } catch (err) {
             console.error("Error loading categories:", err);
             const defaultCategories = {
-                cancer: { id: "cancer", name: "암 관련", originalName: "cancer" },
-                diabetes: { id: "diabetes", name: "당뇨 관련", originalName: "diabetes" },
-                beauty: { id: "beauty", name: "미용 관련", originalName: "beauty" },
+                all: { id: "all", name: "전체 키워드", display_name: "전체 키워드" },
             };
             setCategories(defaultCategories);
             return defaultCategories;
         }
     }, []);
 
-    // 데이터 로드 함수 - 명확한 의존성 관리
+    // 데이터 로드 함수 - activeCategory에 따라 동적으로 필터링
     const loadData = useCallback(async (categoryToLoad) => {
         if (loadingRef.current) {
             console.log("Data already loading, skipping...");
             return;
         }
 
-        console.log(`Starting to load data for category: ${categoryToLoad}`);
+        console.log(`Starting to load data for category: "${categoryToLoad}"`); // 로깅 메시지 변경
         loadingRef.current = true;
         setLoading(true);
         setError(null);
 
-        // 이전 요청 취소
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
         }
@@ -87,15 +74,16 @@ const useKeywordData = () => {
                 if (abortControllerRef.current) {
                     abortControllerRef.current.abort();
                 }
-            }, 30000); // 30초 타임아웃
+            }, 30000);
 
-            console.log("Making API requests...");
+            console.log("Making API requests to Notion-based APIs...");
             
+            // 여기서 categoryToLoad 변수를 사용하여 API 요청을 보냅니다.
             const [keywordsResponse, statsResponse] = await Promise.all([
-                fetch(`/api/keywords?category=${categoryToLoad}`, {
+                fetch(`/api/keywords?category=${categoryToLoad}`, { // 수정됨
                     signal: abortControllerRef.current.signal
                 }),
-                fetch(`/api/statistics?category=${categoryToLoad}`, {
+                fetch(`/api/statistics?category=${categoryToLoad}`, { // 수정됨
                     signal: abortControllerRef.current.signal
                 })
             ]);
@@ -112,7 +100,7 @@ const useKeywordData = () => {
             const keywordsResult = await keywordsResponse.json();
             const statsResult = await statsResponse.json();
 
-            console.log("API responses received successfully");
+            console.log("API responses received successfully from Notion-based APIs");
 
             if (!keywordsResult.success) {
                 throw new Error(keywordsResult.message || "Failed to load keywords");
@@ -122,17 +110,21 @@ const useKeywordData = () => {
                 throw new Error(statsResult.message || "Failed to load statistics");
             }
 
-            // 데이터 처리
             const keywordsData = (keywordsResult.data || []).map((item) => ({
-                keyword: item.keyword || "",
-                category: item.category || "",
-                totalUrls: item.totalUrls || 0,
-                exposureStatus: item.exposureStatus || "미확인",
-                hasExposedUrl: item.hasExposedUrl || false,
-                exposedUrls: item.exposedUrls || 0,
-                hiddenUrls: item.hiddenUrls || 0,
-                unknownUrls: item.unknownUrls || 0,
-                exposureRate: item.exposureRate || 0,
+                id: item.id,
+                keyword: item.keyword,
+                category: item.category,
+                categoryName: item.categoryName,
+                priority: item.priority,
+                createdAt: item.createdAt,
+                updatedAt: item.updatedAt,
+                totalUrls: item.totalUrls,
+                exposedUrls: item.exposedUrls,
+                hiddenUrls: item.hiddenUrls,
+                unknownUrls: item.unknownUrls,
+                exposureStatus: item.exposureStatus,
+                exposureRate: item.exposureRate,
+                hasExposedUrl: item.hasExposedUrl,
                 scannedAt: item.scannedAt,
                 urls: item.urls || [],
             }));
@@ -154,7 +146,7 @@ const useKeywordData = () => {
                     { name: "노출 안됨", value: 0 },
                     { name: "URL 없음", value: 0 },
                 ],
-                ...statsResult.data?.summary,
+                ...statsResult.data?.summary, // statsResult.data.summary는 이미 요청된 카테고리에 대한 요약
             };
 
             const processedData = {
@@ -163,25 +155,17 @@ const useKeywordData = () => {
                 timestamp: keywordsResult.timestamp || new Date().toISOString(),
             };
 
-            // rawData 처리
-            let processedRawData;
-            if (categoryToLoad === "all") {
-                processedRawData = {
-                    allKeywordsData: keywordsData,
-                    allSummary: summary,
-                    categoryData: statsResult.data?.categoryData || {},
-                    timestamps: { [categoryToLoad]: keywordsResult.timestamp },
-                };
-            } else {
-                processedRawData = {
-                    allKeywordsData: [],
-                    allSummary: {},
-                    categoryData: { [categoryToLoad]: { summary } },
-                    timestamps: { [categoryToLoad]: keywordsResult.timestamp },
-                };
-            }
+            const processedRawData = {
+                allKeywordsData: keywordsData, // 이 부분은 실제 데이터가 필터링되었을 수 있으므로 주의 필요.
+                                                // rawData가 전체 데이터를 원한다면 loadData를 2번 호출하거나
+                                                // /api/keywords?category=all 요청을 별도로 해야 합니다.
+                                                // 현재는 filter된 데이터가 rawData로 들어갈 수 있음
+                allSummary: statsResult.data?.allSummary || summary, // statistics API에서 온 allSummary 사용
+                categoryData: statsResult.data?.categoryData || {}, 
+                timestamps: { [categoryToLoad]: keywordsResult.timestamp }, 
+            };
 
-            console.log("Data processing completed successfully");
+            console.log("Data processing completed successfully for Notion data.");
             setData(processedData);
             setRawData(processedRawData);
 
@@ -191,25 +175,26 @@ const useKeywordData = () => {
                 return;
             }
             
-            console.error("Error loading data:", error);
+            console.error("Error loading data from Notion:", error);
             setError(`데이터 로딩 실패: ${error.message}`);
         } finally {
             loadingRef.current = false;
             setLoading(false);
-            console.log("Data loading completed");
+            console.log("Data loading completed from Notion.");
         }
     }, []);
 
-    // 초기 카테고리 로드 (컴포넌트 마운트 시 한 번만)
+    // 초기 데이터 로드 (컴포넌트 마운트 시 한 번만)
     useEffect(() => {
-        console.log("Component mounted, loading categories...");
+        console.log("Component mounted, loading categories and initial data...");
         
         const initializeData = async () => {
             try {
                 const loadedCategories = await loadCategories();
                 if (loadedCategories && Object.keys(loadedCategories).length > 0) {
                     console.log("Categories loaded, now loading initial data...");
-                    await loadData(activeCategory);
+                    // 초기 로드시 activeCategory (기본 'all') 값을 사용하여 데이터 로드
+                    await loadData(activeCategory); 
                 } else {
                     console.log("No categories loaded, setting error state");
                     setError("카테고리를 불러올 수 없습니다.");
@@ -224,36 +209,33 @@ const useKeywordData = () => {
 
         initializeData();
 
-        // 컴포넌트 언마운트 시 정리
         return () => {
             if (abortControllerRef.current) {
                 abortControllerRef.current.abort();
             }
             loadingRef.current = false;
-            categoriesLoadedRef.current = false;
         };
-    }, []); // 빈 의존성 배열로 한 번만 실행
+    }, []); 
 
-    // 카테고리 변경 시에만 데이터 로드
+    // activeCategory가 변경될 때 데이터 로드
     useEffect(() => {
-        // 카테고리가 이미 로드되어 있고, 초기 로딩이 완료된 후에만 실행
-        if (Object.keys(categories).length > 0 && !loading && categoriesLoadedRef.current) {
-            console.log(`Category changed to: ${activeCategory}, loading data...`);
+        if (Object.keys(categories).length > 0 && !loading && data) { // `data`가 로드된 후에만
+            console.log(`Active category changed to: ${activeCategory}, re-loading data...`);
             
             const timer = setTimeout(() => {
-                loadData(activeCategory);
-            }, 100); // 짧은 디바운싱
+                loadData(activeCategory); // activeCategory 값으로 다시 데이터 로드
+            }, 100); 
 
             return () => clearTimeout(timer);
         }
-    }, [activeCategory, categories, loadData]); // categories가 변경될 때는 실행하지 않음
+    }, [activeCategory, categories, loadData]); 
 
-    // 필터된 데이터 반환
     const getFilteredData = () => {
         if (!data) {
             return null;
         }
 
+        // data.keywordsData는 이미 API에서 필터링되어 온 데이터입니다.
         return {
             keywordsData: data.keywordsData || [],
             summary: data.summary,
@@ -261,19 +243,19 @@ const useKeywordData = () => {
             categories: Object.keys(categories).map((id) => ({
                 id,
                 name: categories[id].name,
+                display_name: categories[id].display_name,
             })),
         };
     };
 
     const filteredData = getFilteredData();
 
-    // 수동 새로고침 함수
     const refreshData = useCallback(() => {
         if (!loadingRef.current) {
             console.log("Manual refresh triggered");
-            loadData(activeCategory);
+            loadData(activeCategory); // 현재 activeCategory 값으로 새로고침
         }
-    }, [activeCategory, loadData]);
+    }, [loadData, activeCategory]); 
 
     return {
         data: filteredData,

@@ -1,277 +1,23 @@
-// components/KeywordDashboard/index.jsx - 대량 등록 기능 추가
+// km2535/keywordmonitoring/keywordMonitoring-8c41bec05c035d38efa4883755f1f3bcf44c30e1/components/KeywordDashboard/index.jsx
 import { useState } from "react";
 import useKeywordData from "../../hooks/useKeywordData";
 import BulkKeywordModal from "../Admin/BulkKeywordModal";
 import {
-    CategorySelector,
+    CategorySelector, // 다시 사용
     ErrorMessage,
     LoadingSpinner,
     TabNavigation,
 } from "../common";
 import { KeywordListView } from "../common/KeywordList";
 import {
-    CategoryCharts,
+    CategoryCharts, // 다시 사용
     CategorySummaryTable,
     SummaryCards,
     SummaryCharts,
 } from "../common/Summary";
+import KeywordQuickAddModal from "./KeywordQuickAddModal"; // Quick Add Modal 임포트
 
-// 키워드 추가 모달 컴포넌트
-const KeywordAddModal = ({ isOpen, onClose, categories, onSuccess }) => {
-    const [formData, setFormData] = useState({
-        keyword_text: "",
-        category_name: "",
-        priority: 1,
-        urls: [""],
-    });
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [error, setError] = useState("");
-
-    const handleClose = () => {
-        setFormData({
-            keyword_text: "",
-            category_name: "",
-            priority: 1,
-            urls: [""],
-        });
-        setError("");
-        onClose();
-    };
-
-    const addUrl = () => {
-        setFormData(prev => ({
-            ...prev,
-            urls: [...prev.urls, ""]
-        }));
-    };
-
-    const removeUrl = (index) => {
-        setFormData(prev => ({
-            ...prev,
-            urls: prev.urls.filter((_, i) => i !== index)
-        }));
-    };
-
-    const updateUrl = (index, value) => {
-        setFormData(prev => ({
-            ...prev,
-            urls: prev.urls.map((url, i) => i === index ? value : url)
-        }));
-    };
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setIsSubmitting(true);
-        setError("");
-
-        try {
-            const cleanUrls = formData.urls
-                .filter(url => url.trim() !== "")
-                .map(url => ({ url: url.trim(), type: "monitor" }));
-
-            const requestData = {
-                category_name: formData.category_name,
-                keyword_text: formData.keyword_text.trim(),
-                priority: formData.priority,
-                urls: cleanUrls,
-            };
-
-            const response = await fetch("/api/keywords/manage", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(requestData),
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                alert("키워드가 추가되었습니다!");
-                handleClose();
-                if (onSuccess) onSuccess();
-            } else {
-                setError(result.message || "오류가 발생했습니다.");
-            }
-        } catch (error) {
-            setError("네트워크 오류가 발생했습니다.");
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    if (!isOpen) return null;
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                {/* 모달 헤더 */}
-                <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h3 className="text-xl font-bold text-gray-900">새 키워드 추가</h3>
-                            <p className="text-sm text-gray-600 mt-1">모니터링할 키워드와 URL을 추가하세요</p>
-                        </div>
-                        <button
-                            onClick={handleClose}
-                            className="text-gray-400 hover:text-gray-600 transition-colors"
-                        >
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
-                {/* 모달 내용 */}
-                <form onSubmit={handleSubmit} className="p-6">
-                    {error && (
-                        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
-                            <div className="flex">
-                                <svg className="w-5 h-5 text-red-400 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                                </svg>
-                                <span className="text-red-700 text-sm">{error}</span>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="space-y-6">
-                        {/* 키워드와 카테고리 */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                    키워드 <span className="text-red-500">*</span>
-                                </label>
-                                <input
-                                    type="text"
-                                    value={formData.keyword_text}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, keyword_text: e.target.value }))}
-                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                                    placeholder="예: 폐암 치료"
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                    카테고리 <span className="text-red-500">*</span>
-                                </label>
-                                <select
-                                    value={formData.category_name}
-                                    onChange={(e) => setFormData(prev => ({ ...prev, category_name: e.target.value }))}
-                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                                    required
-                                >
-                                    <option value="">카테고리를 선택하세요</option>
-                                    {Object.entries(categories).map(([id, category]) => (
-                                        <option key={id} value={id}>
-                                            {category.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-
-                        {/* 우선순위 */}
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                우선순위
-                            </label>
-                            <select
-                                value={formData.priority}
-                                onChange={(e) => setFormData(prev => ({ ...prev, priority: parseInt(e.target.value) }))}
-                                className="w-32 px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                            >
-                                {[1, 2, 3, 4, 5].map(num => (
-                                    <option key={num} value={num}>우선순위 {num}</option>
-                                ))}
-                            </select>
-                            <p className="mt-2 text-sm text-gray-500">우선순위 1이 가장 높습니다</p>
-                        </div>
-
-                        {/* URL 목록 */}
-                        <div>
-                            <div className="flex items-center justify-between mb-3">
-                                <label className="block text-sm font-semibold text-gray-700">
-                                    모니터링 URL
-                                </label>
-                                <button
-                                    type="button"
-                                    onClick={addUrl}
-                                    className="inline-flex items-center px-3 py-1 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
-                                >
-                                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                                    </svg>
-                                    URL 추가
-                                </button>
-                            </div>
-                            
-                            <div className="space-y-3">
-                                {formData.urls.map((url, index) => (
-                                    <div key={index} className="flex gap-3">
-                                        <input
-                                            type="url"
-                                            value={url}
-                                            onChange={(e) => updateUrl(index, e.target.value)}
-                                            className="flex-1 px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                                            placeholder="https://example.com"
-                                        />
-                                        {formData.urls.length > 1 && (
-                                            <button
-                                                type="button"
-                                                onClick={() => removeUrl(index)}
-                                                className="px-3 py-3 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-all"
-                                                title="URL 삭제"
-                                            >
-                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                </svg>
-                                            </button>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                            <p className="mt-2 text-sm text-gray-500">
-                                URL은 선택사항입니다. 나중에 추가하거나 수정할 수 있습니다.
-                            </p>
-                        </div>
-                    </div>
-
-                    {/* 모달 푸터 */}
-                    <div className="flex justify-end gap-3 pt-6 mt-6 border-t border-gray-200">
-                        <button
-                            type="button"
-                            onClick={handleClose}
-                            className="px-6 py-3 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-all"
-                            disabled={isSubmitting}
-                        >
-                            취소
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={isSubmitting || !formData.keyword_text.trim() || !formData.category_name}
-                            className="px-6 py-3 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                        >
-                            {isSubmitting ? (
-                                <span className="flex items-center">
-                                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    추가 중...
-                                </span>
-                            ) : (
-                                '키워드 추가'
-                            )}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-};
-
-// 헤더 액션 버튼들
+// 헤더 액션 버튼들 (useKeywordData에서 refreshData를 받도록 변경)
 const HeaderActions = ({ onAddKeyword, onBulkAdd, onRefresh }) => {
     const [showDropdown, setShowDropdown] = useState(false);
 
@@ -284,28 +30,6 @@ const HeaderActions = ({ onAddKeyword, onBulkAdd, onRefresh }) => {
 
     return (
         <div className="flex items-center gap-3">
-            {/* 대량 등록 버튼 */}
-            <button
-                onClick={onBulkAdd}
-                className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-green-600 to-green-700 border border-transparent rounded-lg text-sm font-medium text-white hover:from-green-700 hover:to-green-800 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-all shadow-sm"
-            >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
-                </svg>
-                대량 등록
-            </button>
-
-            {/* 키워드 추가 버튼 */}
-            <button
-                onClick={onAddKeyword}
-                className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-600 to-blue-700 border border-transparent rounded-lg text-sm font-medium text-white hover:from-blue-700 hover:to-blue-800 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all shadow-sm"
-            >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                키워드 추가
-            </button>
-
             {/* 새로고침 버튼 */}
             <button
                 onClick={onRefresh}
@@ -316,47 +40,11 @@ const HeaderActions = ({ onAddKeyword, onBulkAdd, onRefresh }) => {
                 </svg>
                 새로고침
             </button>
-
-            {/* 관리 드롭다운 */}
-            <div className="relative">
-                <button
-                    onClick={() => setShowDropdown(!showDropdown)}
-                    className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-all"
-                >
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4" />
-                    </svg>
-                    관리
-                    <svg className={`w-4 h-4 ml-1 transition-transform ${showDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                </button>
-
-                {showDropdown && (
-                    <>
-                        <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
-                            <div className="py-2">
-                                {menuItems.map((item, index) => (
-                                    <a
-                                        key={index}
-                                        href={item.href}
-                                        className="flex items-center px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                                    >
-                                        <span className="mr-3 text-lg">{item.icon}</span>
-                                        {item.name}
-                                    </a>
-                                ))}
-                            </div>
-                        </div>
-                        <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
-                    </>
-                )}
-            </div>
         </div>
     );
 };
 
-// 빠른 통계 카드들
+// 빠른 통계 카드들 (변동 없음)
 const QuickStats = ({ summary }) => {
     const stats = [
         {
@@ -423,18 +111,20 @@ const KeywordDashboard = () => {
         activeCategory,
         setActiveCategory,
         categories,
+        refreshData,
     } = useKeywordData();
     
     const [activeTab, setActiveTab] = useState("summary");
     const [showAddModal, setShowAddModal] = useState(false);
     const [showBulkModal, setShowBulkModal] = useState(false);
 
+    // 새로고침 핸들러
     const handleRefresh = () => {
-        window.location.reload();
+        refreshData();
     };
 
     const handleKeywordAdded = () => {
-        window.location.reload();
+        refreshData();
     };
 
     if (loading) {
@@ -481,10 +171,14 @@ const KeywordDashboard = () => {
     };
 
     const safeKeywordsData = data.keywordsData || [];
-    const categoryList = Object.keys(categories).map((id) => ({
+    
+    // categories 객체에서 배열로 변환
+    const categoryListForUI = Object.keys(categories).map((id) => ({
         id,
         name: categories[id].name,
+        display_name: categories[id].display_name,
     }));
+
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
@@ -497,9 +191,7 @@ const KeywordDashboard = () => {
                                 키워드 모니터링 대시보드
                             </h1>
                             <p className="text-lg text-gray-600">
-                                {activeCategory === "all"
-                                    ? "모든 카테고리"
-                                    : categories[activeCategory]?.name || "선택된 카테고리"} 
+                                {categories[activeCategory]?.display_name} 모니터링
                                 {data.timestamp && (
                                     <span className="text-gray-400 ml-2">
                                         • {new Date(data.timestamp).toLocaleString("ko-KR")}
@@ -522,11 +214,11 @@ const KeywordDashboard = () => {
                 {/* 메인 콘텐츠 */}
                 <div className="bg-white rounded-2xl shadow-lg border border-gray-100">
                     <div className="p-6">
-                        {/* 카테고리 선택기 */}
+                        {/* 카테고리 선택기 다시 활성화 */}
                         <CategorySelector
                             activeCategory={activeCategory}
                             setActiveCategory={setActiveCategory}
-                            categories={categories}
+                            categories={categoryListForUI}
                         />
 
                         {/* 탭 네비게이션 */}
@@ -543,20 +235,18 @@ const KeywordDashboard = () => {
                                     <>
                                         <SummaryCards summary={safeSummary} />
                                         
+                                        {/* 카테고리 요약 테이블과 차트 */}
                                         {rawData && (
-                                            <CategorySummaryTable
-                                                rawData={rawData}
-                                                categories={categories}
-                                            />
-                                        )}
-
-                                        <SummaryCharts summary={safeSummary} />
-
-                                        {activeCategory === "all" && rawData && (
-                                            <CategoryCharts
-                                                rawData={rawData}
-                                                categories={categories}
-                                            />
+                                            <>
+                                                <CategorySummaryTable
+                                                    rawData={rawData}
+                                                    categories={categories}
+                                                />
+                                                <CategoryCharts
+                                                    rawData={rawData}
+                                                    categories={categories}
+                                                />
+                                            </>
                                         )}
                                     </>
                                 ) : (
@@ -567,7 +257,6 @@ const KeywordDashboard = () => {
                                         </h3>
                                         <p className="text-gray-600 mb-8 max-w-md mx-auto">
                                             키워드를 추가하고 모니터링을 시작해보세요. 
-                                            다양한 카테고리로 체계적으로 관리할 수 있습니다.
                                         </p>
                                         <div className="flex justify-center gap-4">
                                             <button
@@ -582,12 +271,6 @@ const KeywordDashboard = () => {
                                             >
                                                 키워드 추가하기
                                             </button>
-                                            <a
-                                                href="/admin/categories"
-                                                className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
-                                            >
-                                                카테고리 관리
-                                            </a>
                                         </div>
                                     </div>
                                 )}
@@ -600,15 +283,13 @@ const KeywordDashboard = () => {
                                     <KeywordListView
                                         keywordsData={safeKeywordsData}
                                         activeCategory={activeCategory}
-                                        categories={categoryList}
+                                        categories={categoryListForUI}
                                     />
                                 ) : (
                                     <div className="text-center py-16">
                                         <div className="text-6xl mb-4">🔍</div>
                                         <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                                            {activeCategory === "all"
-                                                ? "키워드가 없습니다"
-                                                : `${categories[activeCategory]?.name} 카테고리에 키워드가 없습니다`}
+                                            키워드가 없습니다
                                         </h3>
                                         <p className="text-gray-600 mb-8 max-w-md mx-auto">
                                             새로운 키워드를 추가하여 모니터링을 시작하세요.
@@ -635,10 +316,10 @@ const KeywordDashboard = () => {
                 </div>
 
                 {/* 키워드 추가 모달 */}
-                <KeywordAddModal
+                <KeywordQuickAddModal
                     isOpen={showAddModal}
                     onClose={() => setShowAddModal(false)}
-                    categories={categories}
+                    categories={categoryListForUI} // 'all' 포함
                     onSuccess={handleKeywordAdded}
                 />
 
@@ -646,7 +327,7 @@ const KeywordDashboard = () => {
                 <BulkKeywordModal
                     isOpen={showBulkModal}
                     onClose={() => setShowBulkModal(false)}
-                    categories={categories}
+                    categories={categoryListForUI} // 'all' 포함
                     onSuccess={handleKeywordAdded}
                 />
             </div>

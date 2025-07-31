@@ -1,68 +1,54 @@
+// km2535/keywordmonitoring/keywordMonitoring-8c41bec05c035d38efa4883755f1f3bcf44c30e1/pages/admin/keywords.js
 import Head from "next/head";
 import { useEffect, useState } from "react";
 import AdminLayout from "../../components/Admin/AdminLayout";
+import useKeywordData from "../../hooks/useKeywordData"; // useKeywordData 훅 임포트
 
 const KeywordManagement = () => {
+    // useKeywordData 훅에서 필요한 데이터와 함수들을 가져옵니다.
+    const { 
+        data, 
+        loading, 
+        error, 
+        activeCategory, 
+        setActiveCategory, 
+        categories, // 동적으로 로드된 카테고리 (R1, R2 등)
+        refreshData 
+    } = useKeywordData();
+
     const [keywords, setKeywords] = useState([]);
-    const [categories, setCategories] = useState([]);
-    const [loading, setLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
     const [editingKeyword, setEditingKeyword] = useState(null);
-    const [selectedCategory, setSelectedCategory] = useState("all");
     const [expandedKeywords, setExpandedKeywords] = useState(new Set());
 
     // Form states
     const [formData, setFormData] = useState({
         keyword_text: "",
-        category_name: "",
-        priority: 1,
+        category_name: "all", // 기본값은 'all'
+        priority: 1, // 우선순위는 Notion Select 속성으로 문자열이어야 함
         urls: [{ url: "", type: "monitor" }],
     });
 
-    // Load data
+    // useKeywordData에서 데이터가 로드되면 keywords 상태 업데이트
     useEffect(() => {
-        loadKeywords();
-        loadCategories();
-    }, [selectedCategory]);
-
-    const loadKeywords = async () => {
-        try {
-            setLoading(true);
-            const response = await fetch(`/api/keywords?category=${selectedCategory}`);
-            const result = await response.json();
-            
-            console.log("Keywords loaded:", result);
-            
-            if (result.success) {
-                setKeywords(result.data);
-            } else {
-                alert("키워드를 불러오는데 실패했습니다: " + result.message);
-            }
-        } catch (error) {
-            console.error("Error loading keywords:", error);
-            alert("네트워크 오류가 발생했습니다.");
-        } finally {
-            setLoading(false);
+        if (data && data.keywordsData) {
+            setKeywords(data.keywordsData);
         }
-    };
+    }, [data]);
 
-    const loadCategories = async () => {
-        try {
-            const response = await fetch("/api/categories");
-            const result = await response.json();
-            if (result.success) {
-                setCategories(result.data);
-            }
-        } catch (error) {
-            console.error("Error loading categories:", error);
-        }
+    const handleRefresh = () => {
+        refreshData(); // useKeywordData 훅의 refreshData 호출
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (!formData.keyword_text.trim() || !formData.category_name) {
-            alert("키워드와 카테고리는 필수입니다.");
+        if (!formData.keyword_text.trim()) {
+            alert("키워드는 필수입니다.");
+            return;
+        }
+        if (!formData.category_name || formData.category_name === "all") { // 카테고리도 필수로 만듦
+            alert("카테고리(R 값)는 필수입니다.");
             return;
         }
 
@@ -70,17 +56,24 @@ const KeywordManagement = () => {
             const method = editingKeyword ? "PUT" : "POST";
             const url = "/api/keywords/manage";
 
-            // Clean URLs - 빈 URL 제거
             const cleanUrls = formData.urls
                 .filter(urlObj => urlObj.url.trim() !== "")
-                .map(urlObj => ({
-                    url: urlObj.url.trim(),
-                    type: urlObj.type || "monitor"
-                }));
-
+                .map(urlObj => urlObj.url.trim()); 
+            
             const requestData = editingKeyword
-                ? { keyword_id: editingKeyword.id, ...formData, urls: cleanUrls }
-                : { ...formData, urls: cleanUrls };
+                ? { 
+                    keyword_id: editingKeyword.id, 
+                    keyword_text: formData.keyword_text.trim(),
+                    priority: String(formData.priority),
+                    urls: cleanUrls, // URL 리스트 (manage.js에서 첫 번째만 사용)
+                    category_name: formData.category_name, // R 값
+                }
+                : { 
+                    keyword_text: formData.keyword_text.trim(),
+                    category_name: formData.category_name, // R 값
+                    priority: String(formData.priority),
+                    urls: cleanUrls,
+                };
 
             console.log("Submitting keyword data:", requestData);
 
@@ -93,9 +86,9 @@ const KeywordManagement = () => {
             const result = await response.json();
 
             if (result.success) {
-                alert(editingKeyword ? "키워드가 수정되었습니다." : "키워드가 추가되었습니다.");
+                alert(result.message);
                 closeModal();
-                loadKeywords();
+                handleRefresh(); // 데이터 새로고침
             } else {
                 alert(result.message || "오류가 발생했습니다.");
             }
@@ -106,7 +99,7 @@ const KeywordManagement = () => {
     };
 
     const handleDelete = async (keywordId, keywordText) => {
-        if (!confirm(`"${keywordText}" 키워드를 정말로 삭제하시겠습니까?\n연관된 모든 URL과 스캔 결과도 함께 삭제됩니다.`)) {
+        if (!confirm(`"${keywordText}" 키워드를 정말로 삭제하시겠습니까?\n노션 데이터베이스에서 해당 페이지가 보관(archived) 처리됩니다.`)) {
             return;
         }
 
@@ -114,14 +107,14 @@ const KeywordManagement = () => {
             const response = await fetch("/api/keywords/manage", {
                 method: "DELETE",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ keyword_id: keywordId }),
+                body: JSON.stringify({ keyword_id: keywordId }), // Notion page ID
             });
 
             const result = await response.json();
 
             if (result.success) {
-                alert("키워드가 삭제되었습니다.");
-                loadKeywords();
+                alert(result.message);
+                handleRefresh(); // 데이터 새로고침
             } else {
                 alert(result.message || "삭제 중 오류가 발생했습니다.");
             }
@@ -135,8 +128,8 @@ const KeywordManagement = () => {
         setEditingKeyword(keyword);
         setFormData({
             keyword_text: keyword.keyword,
-            category_name: keyword.category,
-            priority: keyword.priority || 1,
+            category_name: keyword.category, // 'R' 값 사용
+            priority: parseInt(keyword.priority) || 1, 
             urls: keyword.urls.length > 0 
                 ? keyword.urls.map(url => ({ url: url.url, type: url.urlType }))
                 : [{ url: "", type: "monitor" }],
@@ -147,12 +140,7 @@ const KeywordManagement = () => {
     const closeModal = () => {
         setShowAddModal(false);
         setEditingKeyword(null);
-        setFormData({
-            keyword_text: "",
-            category_name: "",
-            priority: 1,
-            urls: [{ url: "", type: "monitor" }],
-        });
+        resetForm(); // 폼 데이터 초기화
     };
 
     const addUrl = () => {
@@ -190,22 +178,46 @@ const KeywordManagement = () => {
 
     const getStatusColor = (status) => {
         switch (status) {
-            case "노출됨": return "bg-green-100 text-green-800";
-            case "노출 안됨": return "bg-red-100 text-red-800";
-            case "URL 없음": return "bg-gray-100 text-gray-800";
+            case "최상단 노출": return "bg-green-100 text-green-800";
+            case "노출X": return "bg-red-100 text-red-800";
+            case "저품질": return "bg-purple-100 text-purple-800";
+            case "미발행": return "bg-gray-100 text-gray-800";
             default: return "bg-yellow-100 text-yellow-800";
         }
     };
 
     const getUrlStatusBadge = (url) => {
         if (url.isExposed === true) {
-            return <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">노출 #{url.exposureRank}</span>;
+            return <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">노출</span>;
         } else if (url.isExposed === false) {
             return <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">미노출</span>;
         } else {
             return <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">미확인</span>;
         }
     };
+
+    if (loading) {
+        return (
+            <AdminLayout>
+                <div className="flex justify-center py-12">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                </div>
+            </AdminLayout>
+        );
+    }
+
+    if (error) {
+        return (
+            <AdminLayout>
+                <div className="text-center py-12 text-red-600">
+                    <p>데이터 로딩 중 오류 발생: {error}</p>
+                    <button onClick={handleRefresh} className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                        다시 시도
+                    </button>
+                </div>
+            </AdminLayout>
+        );
+    }
 
     return (
         <>
@@ -225,15 +237,15 @@ const KeywordManagement = () => {
                     {/* Controls */}
                     <div className="mb-6 flex flex-col sm:flex-row justify-between items-center gap-4">
                         <div className="flex items-center gap-4">
+                            {/* 카테고리 필터 다시 활성화 */}
                             <label className="text-sm font-medium text-gray-700">카테고리:</label>
                             <select
-                                value={selectedCategory}
-                                onChange={(e) => setSelectedCategory(e.target.value)}
+                                value={activeCategory} // useKeywordData의 activeCategory 사용
+                                onChange={(e) => setActiveCategory(e.target.value)} // useKeywordData의 setActiveCategory 사용
                                 className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                             >
-                                <option value="all">전체</option>
-                                {categories.map((category) => (
-                                    <option key={category.name} value={category.name}>
+                                {Object.values(categories).map((category) => (
+                                    <option key={category.id} value={category.id}>
                                         {category.display_name}
                                     </option>
                                 ))}
@@ -255,11 +267,7 @@ const KeywordManagement = () => {
                     </div>
 
                     {/* Keywords List */}
-                    {loading ? (
-                        <div className="flex justify-center py-12">
-                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                        </div>
-                    ) : keywords.length === 0 ? (
+                    {keywords.length === 0 ? (
                         <div className="text-center py-12 bg-white rounded-lg shadow">
                             <div className="text-gray-400 mb-4">
                                 <svg className="mx-auto h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -268,7 +276,7 @@ const KeywordManagement = () => {
                             </div>
                             <h3 className="text-lg font-medium text-gray-900 mb-2">키워드가 없습니다</h3>
                             <p className="text-gray-500 mb-4">
-                                {selectedCategory === "all" ? "첫 번째 키워드를 추가해보세요." : "이 카테고리에 키워드를 추가해보세요."}
+                                첫 번째 키워드를 추가해보세요.
                             </p>
                             <button
                                 onClick={() => setShowAddModal(true)}
@@ -288,6 +296,7 @@ const KeywordManagement = () => {
                                                 <div>
                                                     <h3 className="text-lg font-semibold text-gray-900">{keyword.keyword}</h3>
                                                     <div className="flex items-center space-x-2 mt-1">
+                                                        {/* 카테고리 뱃지 다시 활성화 */}
                                                         <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
                                                             {keyword.categoryName}
                                                         </span>
@@ -297,6 +306,11 @@ const KeywordManagement = () => {
                                                         <span className="text-xs text-gray-500">
                                                             우선순위 {keyword.priority}
                                                         </span>
+                                                        {keyword.updatedAt && (
+                                                            <span className="text-xs text-gray-500">
+                                                                업데이트: {new Date(keyword.updatedAt).toLocaleString('ko-KR')}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -356,7 +370,7 @@ const KeywordManagement = () => {
                                                                         <span className="text-xs text-gray-500">
                                                                             타입: {url.urlType === 'monitor' ? '모니터링' : '타겟'}
                                                                         </span>
-                                                                        {url.scannedAt && (
+                                                                        {url.scannedAt && ( 
                                                                             <span className="text-xs text-gray-500">
                                                                                 스캔: {new Date(url.scannedAt).toLocaleString('ko-KR')}
                                                                             </span>
@@ -426,9 +440,10 @@ const KeywordManagement = () => {
                                                 />
                                             </div>
 
+                                            {/* 카테고리 필드 다시 활성화 (R 속성) */}
                                             <div>
                                                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                    카테고리 <span className="text-red-500">*</span>
+                                                    카테고리 (R 값) <span className="text-red-500">*</span>
                                                 </label>
                                                 <select
                                                     value={formData.category_name}
@@ -437,8 +452,9 @@ const KeywordManagement = () => {
                                                     required
                                                 >
                                                     <option value="">카테고리 선택</option>
-                                                    {categories.map((category) => (
-                                                        <option key={category.name} value={category.name}>
+                                                    {/* 'all' 카테고리를 제외하고 'R' 값 옵션만 표시 */}
+                                                    {Object.values(categories).filter(cat => cat.id !== "all").map((category) => (
+                                                        <option key={category.id} value={category.id}>
                                                             {category.display_name}
                                                         </option>
                                                     ))}
@@ -482,14 +498,6 @@ const KeywordManagement = () => {
                                                             placeholder="https://example.com"
                                                             className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
                                                         />
-                                                        <select
-                                                            value={urlObj.type}
-                                                            onChange={(e) => updateUrl(index, 'type', e.target.value)}
-                                                            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
-                                                        >
-                                                            <option value="monitor">모니터링</option>
-                                                            <option value="target">타겟</option>
-                                                        </select>
                                                         {formData.urls.length > 1 && (
                                                             <button
                                                                 type="button"
@@ -516,6 +524,7 @@ const KeywordManagement = () => {
                                             </button>
                                             <button
                                                 type="submit"
+                                                disabled={isProcessing || !formData.keyword_text.trim() || !formData.category_name || formData.category_name === "all"}
                                                 className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors"
                                             >
                                                 {editingKeyword ? "수정" : "추가"}

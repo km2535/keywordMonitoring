@@ -1,284 +1,125 @@
-// pages/api/keywords/manage.js - 외래 키 제약 조건 해결된 버전
-import { 
-    executeQuery, 
-    startTransaction, 
-    commitTransaction, 
-    rollbackTransaction 
-} from "../../../lib/database";
+// km2535/keywordmonitoring/keywordMonitoring-8c41bec05c035d38efa4883755f1f3bcf44c30e1/pages/api/keywords/manage.js
+import { updateNotionPage, queryAllNotionPages, getNotionDatabaseSchema } from "../../../lib/notion";
 
 export default async function handler(req, res) {
     if (req.method === "POST") {
-        // Add new keyword
+        console.warn("POST /api/keywords/manage: Notion API 페이지 생성 로직을 시작합니다.");
         try {
-            const {
-                category_name,
-                keyword_text,
-                priority = 1,
-                urls = [],
-            } = req.body;
+            // category_name은 이제 'R' 속성의 값 (R1, R2, R3 등)
+            const { keyword_text, urls, priority, category_name } = req.body; 
 
-            if (!category_name || !keyword_text) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Category name and keyword text are required",
-                });
+            if (!keyword_text) {
+                return res.status(400).json({ success: false, message: "키워드 텍스트는 필수입니다." });
             }
-
-            // Get category ID
-            const categoryResult = await executeQuery(
-                "SELECT id FROM categories WHERE name = ? AND is_active = TRUE",
-                [category_name]
-            );
-
-            if (categoryResult.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Category not found",
-                });
-            }
-
-            const categoryId = categoryResult[0].id;
-
-            // Insert keyword
-            const keywordResult = await executeQuery(
-                "INSERT INTO keywords (category_id, keyword_text, priority) VALUES (?, ?, ?)",
-                [categoryId, keyword_text, priority]
-            );
-
-            const keywordId = keywordResult.insertId;
-
-            // Insert URLs if provided
-            if (urls.length > 0) {
-                const urlInserts = urls.map((url) => [
-                    keywordId,
-                    url.url,
-                    url.type || "monitor",
-                ]);
-                await executeQuery(
-                    "INSERT INTO keyword_urls (keyword_id, target_url, url_type) VALUES ?",
-                    [urlInserts]
-                );
-            }
-
-            res.status(201).json({
-                success: true,
-                data: {
-                    keyword_id: keywordId,
-                    message: "Keyword added successfully",
+            // Notion API는 page.create를 사용하며, parent와 properties를 명시해야 합니다.
+            // lib/notion.js에 createNotionPage 함수가 없으므로 먼저 추가해야 함.
+            // 임시로 Notion API 클라이언트를 직접 사용하거나, lib/notion.js에 함수를 추가합니다.
+            // 여기서는 lib/notion.js에 createNotionPage 함수가 있다고 가정합니다.
+            
+            // Notion API는 URL 속성에 단일 URL만 받으므로 배열의 첫 번째 요소만 사용
+            const urlToNotion = urls && urls.length > 0 ? urls[0].url : null;
+            
+            // Notion page properties 정의
+            const properties = {
+                "키워드": {
+                    "title": [{"text": {"content": keyword_text}}]
                 },
+                "기존글url": urlToNotion ? { "url": urlToNotion } : null,
+                "우선순위": {
+                    "select": { "name": String(priority) } // 우선순위는 Select 옵션으로 문자열이어야 함
+                },
+                "R": { // 'R' 속성에 카테고리 정보 저장 (Select 타입)
+                    "select": { "name": category_name }
+                },
+                "상위 노출 여부": { "status": { "name": "미발행" } }, // 초기 상태
+                "업데이트 날짜": { "date": { "start": new Date().toISOString().split('T')[0], "end": null } }
+            };
+
+            // lib/notion.js에 createNotionPage 함수를 추가해야 이 코드가 작동합니다.
+            // export async function createNotionPage(properties) { ... }
+            // 임시 방편으로, lib/notion에서 직접 Client를 사용하여 API 호출
+            const notion = new (await import("../../../lib/notion")).Client({ auth: process.env.NOTION_API_KEY });
+            const newPage = await notion.pages.create({
+                parent: { database_id: process.env.NOTION_DATABASE_ID },
+                properties: properties,
             });
+
+            res.status(201).json({ success: true, data: { keyword_id: newPage.id, message: "키워드가 추가되었습니다." } });
+
         } catch (error) {
-            console.error("Add keyword error:", error);
-            res.status(500).json({
-                success: false,
-                message: "Failed to add keyword",
-                error: error.message,
-            });
+            console.error("Notion 키워드 추가 오류:", error);
+            res.status(500).json({ success: false, message: "키워드 추가 실패", error: error.message });
         }
+
     } else if (req.method === "PUT") {
-        // Update existing keyword
         try {
-            const { keyword_id, keyword_text, priority, is_active } = req.body;
+            const { keyword_id, keyword_text, priority, urls, is_active, category_name } = req.body; 
 
             if (!keyword_id) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Keyword ID is required",
-                });
+                return res.status(400).json({ success: false, message: "키워드 ID는 필수입니다." });
             }
-
-            // Build update query dynamically
-            let updateFields = [];
-            let params = [];
+            
+            const propertiesToUpdate = {};
 
             if (keyword_text !== undefined) {
-                updateFields.push("keyword_text = ?");
-                params.push(keyword_text);
+                propertiesToUpdate["키워드"] = {
+                    "title": [{"text": {"content": keyword_text}}]
+                };
             }
-
             if (priority !== undefined) {
-                updateFields.push("priority = ?");
-                params.push(priority);
+                propertiesToUpdate["우선순위"] = {
+                    "select": {"name": String(priority)}
+                };
             }
-
+            if (category_name !== undefined) {
+                propertiesToUpdate["R"] = { // 'R' 속성 업데이트
+                    "select": {"name": category_name}
+                };
+            }
             if (is_active !== undefined) {
-                updateFields.push("is_active = ?");
-                params.push(is_active);
+                // Notion에 'isActive'와 같은 Checkbox 또는 Status 속성이 있다면 여기에 추가
+                // 예: propertiesToUpdate["활성 여부"] = { "checkbox": is_active };
+            }
+            if (urls !== undefined) {
+                propertiesToUpdate["기존글url"] = {
+                    "url": urls && urls.length > 0 ? urls[0].url : null
+                };
             }
 
-            if (updateFields.length === 0) {
-                return res.status(400).json({
-                    success: false,
-                    message: "No fields to update",
-                });
+            if (Object.keys(propertiesToUpdate).length === 0) {
+                return res.status(400).json({ success: false, message: "업데이트할 필드가 없습니다." });
             }
 
-            params.push(keyword_id);
+            await updateNotionPage(keyword_id, propertiesToUpdate); // lib/notion 헬퍼 사용
 
-            const updateQuery = `UPDATE keywords SET ${updateFields.join(
-                ", "
-            )} WHERE id = ?`;
-            await executeQuery(updateQuery, params);
+            res.status(200).json({ success: true, message: "키워드가 수정되었습니다." });
 
-            res.status(200).json({
-                success: true,
-                message: "Keyword updated successfully",
-            });
         } catch (error) {
-            console.error("Update keyword error:", error);
-            res.status(500).json({
-                success: false,
-                message: "Failed to update keyword",
-                error: error.message,
-            });
+            console.error("Notion 키워드 수정 오류:", error);
+            res.status(500).json({ success: false, message: "키워드 수정 실패", error: error.message });
         }
+
     } else if (req.method === "DELETE") {
-        // Delete keyword with proper cascade deletion - 외래 키 제약 조건 해결
-        let connection = null;
-        
+        // DELETE 기능은 Notion API에서 페이지를 '보관(archive)'하는 방식으로 구현됩니다.
+        // 이는 영구 삭제가 아니므로, 사용자에게 해당 사실을 알리거나 다른 방식으로 처리해야 합니다.
+        console.warn("DELETE /api/keywords/manage: Notion API 페이지 삭제 로직을 시작합니다.");
         try {
             const { keyword_id } = req.body;
-
             if (!keyword_id) {
-                return res.status(400).json({
-                    success: false,
-                    message: "Keyword ID is required",
-                });
+                return res.status(400).json({ success: false, message: "키워드 ID는 필수입니다." });
             }
-
-            console.log("Starting keyword deletion process for ID:", keyword_id);
-
-            // Get keyword info first
-            const keywordInfo = await executeQuery(
-                "SELECT keyword_text FROM keywords WHERE id = ?",
-                [keyword_id]
-            );
-
-            if (keywordInfo.length === 0) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Keyword not found",
-                });
-            }
-
-            const keywordText = keywordInfo[0].keyword_text;
-
-            // Start transaction
-            connection = await startTransaction();
-
-            try {
-                // Step 1: Get all keyword_url IDs for this keyword
-                const [keywordUrls] = await connection.execute(
-                    "SELECT id FROM keyword_urls WHERE keyword_id = ?",
-                    [keyword_id]
-                );
-
-                console.log(`Found ${keywordUrls.length} URLs for keyword`);
-
-                if (keywordUrls.length > 0) {
-                    const urlIds = keywordUrls.map(url => url.id);
-                    const placeholders = urlIds.map(() => '?').join(',');
-
-                    // Step 2: Delete url_scan_details first (deepest level)
-                    try {
-                        const [deleteScanDetails] = await connection.execute(
-                            `DELETE FROM url_scan_details WHERE keyword_url_id IN (${placeholders})`,
-                            urlIds
-                        );
-                        console.log(`Deleted ${deleteScanDetails.affectedRows} url_scan_details records`);
-                    } catch (scanError) {
-                        console.log("url_scan_details deletion skipped (table might not exist):", scanError.message);
-                    }
-
-                    // Step 3: Delete exposure_logs that reference keyword_urls - 🔥 이 부분이 누락되어 있었음!
-                    try {
-                        const [deleteExposureLogs] = await connection.execute(
-                            `DELETE FROM exposure_logs WHERE keyword_url_id IN (${placeholders})`,
-                            urlIds
-                        );
-                        console.log(`Deleted ${deleteExposureLogs.affectedRows} exposure_logs records`);
-                    } catch (exposureError) {
-                        console.log("exposure_logs deletion skipped (table might not exist):", exposureError.message);
-                    }
-
-                    // Step 4: Delete keyword_urls
-                    const [deleteUrls] = await connection.execute(
-                        `DELETE FROM keyword_urls WHERE keyword_id = ?`,
-                        [keyword_id]
-                    );
-                    console.log(`Deleted ${deleteUrls.affectedRows} keyword_urls records`);
-                }
-
-                // Step 5: Delete scan_results that directly reference the keyword
-                try {
-                    const [deleteScanResults] = await connection.execute(
-                        "DELETE FROM scan_results WHERE keyword_id = ?",
-                        [keyword_id]
-                    );
-                    console.log(`Deleted ${deleteScanResults.affectedRows} scan_results records`);
-                } catch (scanError) {
-                    console.log("scan_results deletion skipped (table might not exist):", scanError.message);
-                }
-
-                // Step 6: Delete exposure_logs that directly reference the keyword - 추가 안전 장치
-                try {
-                    const [deleteKeywordExposureLogs] = await connection.execute(
-                        "DELETE FROM exposure_logs WHERE keyword_id = ?",
-                        [keyword_id]
-                    );
-                    console.log(`Deleted ${deleteKeywordExposureLogs.affectedRows} additional exposure_logs records`);
-                } catch (exposureError) {
-                    console.log("keyword exposure_logs deletion skipped:", exposureError.message);
-                }
-
-                // Step 7: Finally delete the keyword
-                const [deleteKeyword] = await connection.execute(
-                    "DELETE FROM keywords WHERE id = ?",
-                    [keyword_id]
-                );
-
-                if (deleteKeyword.affectedRows === 0) {
-                    throw new Error("Keyword not found or already deleted");
-                }
-
-                console.log("Keyword deleted successfully");
-
-                // Commit transaction
-                await commitTransaction(connection);
-                connection = null; // 연결이 이미 해제됨
-
-                res.status(200).json({
-                    success: true,
-                    message: `Keyword "${keywordText}" and all associated data deleted successfully`,
-                });
-
-            } catch (deleteError) {
-                // Rollback on error
-                if (connection) {
-                    await rollbackTransaction(connection);
-                    connection = null;
-                }
-                console.error("Error during deletion, transaction rolled back:", deleteError);
-                throw deleteError;
-            }
-
-        } catch (error) {
-            console.error("Delete keyword error:", error);
             
-            // Make sure to rollback if something went wrong
-            if (connection) {
-                try {
-                    await rollbackTransaction(connection);
-                } catch (rollbackError) {
-                    console.error("Rollback error:", rollbackError);
-                }
-            }
-
-            res.status(500).json({
-                success: false,
-                message: "Failed to delete keyword: " + error.message,
-                error: error.message,
+            // Notion API를 사용하여 페이지를 '보관(archive)'합니다.
+            const notion = new (await import("../../../lib/notion")).Client({ auth: process.env.NOTION_API_KEY });
+            await notion.pages.update({
+                page_id: keyword_id,
+                archived: true, // 페이지를 보관 상태로 변경
             });
+
+            res.status(200).json({ success: true, message: "키워드가 삭제되었습니다 (Notion에서 보관됨)." });
+        } catch (error) {
+            console.error("Notion 키워드 삭제 오류:", error);
+            res.status(500).json({ success: false, message: "키워드 삭제 실패", error: error.message });
         }
     } else {
         res.status(405).json({ message: "Method not allowed" });

@@ -1,4 +1,4 @@
-// components/Admin/BulkKeywordModal.jsx
+// km2535/keywordmonitoring/keywordMonitoring-8c41bec05c035d38efa4883755f1f3bcf44c30e1/components/Admin/BulkKeywordModal.jsx
 import { useState } from "react";
 import * as XLSX from "xlsx";
 
@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
     const [activeTab, setActiveTab] = useState("text"); // "text" 또는 "excel"
     const [formData, setFormData] = useState({
-        category_name: "",
+        // category_name: "", // 카테고리 필드는 더 이상 UI에 표시 안 함
         priority: 1,
         keywords: "",
         urls: "",
@@ -20,7 +20,7 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
 
     const resetForm = () => {
         setFormData({
-            category_name: "",
+            // category_name: "",
             priority: 1,
             keywords: "",
             urls: "",
@@ -42,40 +42,35 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
         setError("");
 
         try {
-            if (!formData.category_name || !formData.keywords.trim()) {
-                setError("카테고리와 키워드는 필수입니다.");
+            if (!formData.keywords.trim()) { // 카테고리 필수 조건 제거
+                setError("키워드는 필수입니다.");
                 return;
             }
 
-            // 키워드 파싱 - 키워드와 URL을 함께 처리
             const keywordLines = formData.keywords
                 .split("\n")
                 .map(line => line.trim())
                 .filter(line => line.length > 0);
 
-            // 공통 URL 파싱
             const commonUrls = formData.urls
                 .split("\n")
                 .map(u => u.trim())
                 .filter(u => u.length > 0);
 
-            // 키워드 데이터 구성
             const keywordList = keywordLines.map(line => {
-                // 키워드|URL1,URL2 형태로 파싱
                 const parts = line.split('|');
                 const keyword = parts[0].trim();
                 const lineUrls = parts.length > 1 
                     ? parts[1].split(',').map(u => u.trim()).filter(u => u.length > 0)
                     : [];
 
-                // 공통 URL과 개별 URL 합치기
                 const allUrls = [...commonUrls, ...lineUrls];
 
                 return {
                     keyword_text: keyword,
-                    category_name: formData.category_name,
-                    priority: formData.priority,
-                    urls: allUrls,
+                    // category_name: formData.category_name, // 서버에서 카테고리 무시
+                    priority: String(formData.priority), // Notion Select는 문자열
+                    urls: allUrls, // URL 리스트
                 };
             });
 
@@ -120,11 +115,10 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
             const worksheet = workbook.Sheets[workbook.SheetNames[0]];
             const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-            // 데이터 검증 및 변환
             const processedData = jsonData.map((row, index) => ({
                 rowNumber: index + 1,
                 keyword: row["키워드"] || row["keyword"] || "",
-                category: row["카테고리"] || row["category"] || "",
+                category: row["카테고리"] || row["category"] || "all", // 엑셀에 카테고리 없으면 'all'로 기본값
                 priority: parseInt(row["우선순위"] || row["priority"] || 1),
                 urls: row["URL"] || row["urls"] || "",
                 isValid: Boolean(row["키워드"] || row["keyword"]),
@@ -154,8 +148,8 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
             const bulkData = {
                 keywords: validData.map(row => ({
                     keyword_text: row.keyword,
-                    category_name: row.category || formData.category_name,
-                    priority: row.priority || formData.priority,
+                    category_name: row.category, // 엑셀에서 온 카테고리명 (서버에서 무시될 수 있음)
+                    priority: String(row.priority), // Notion Select는 문자열
                     urls: row.urls ? row.urls.split(",").map(u => u.trim()).filter(u => u) : [],
                 })),
             };
@@ -191,19 +185,19 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
         const templateData = [
             {
                 "키워드": "예시 키워드 1",
-                "카테고리": "cancer",
+                "카테고리": "all", // 카테고리 속성 제거 또는 'all'로 통일
                 "우선순위": 1,
                 "URL": "https://example.com,https://example2.com"
             },
             {
                 "키워드": "예시 키워드 2", 
-                "카테고리": "diabetes",
+                "카테고리": "all",
                 "우선순위": 2,
                 "URL": "https://example3.com"
             },
             {
                 "키워드": "URL 없는 키워드",
-                "카테고리": "beauty",
+                "카테고리": "all",
                 "우선순위": 1,
                 "URL": ""
             }
@@ -211,10 +205,9 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
 
         const ws = XLSX.utils.json_to_sheet(templateData);
         
-        // 컬럼 너비 설정
         ws['!cols'] = [
             { wch: 20 }, // 키워드
-            { wch: 15 }, // 카테고리
+            { wch: 15 }, // 카테고리 (여전히 템플릿에는 표시)
             { wch: 10 }, // 우선순위
             { wch: 50 }  // URL
         ];
@@ -231,7 +224,7 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
             <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
                 {/* 모달 헤더 */}
                 <div className="px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
-                    <div className="flex items-center justify-between">
+                    <div className="flex justify-between items-center">
                         <div>
                             <h3 className="text-xl font-bold text-gray-900">키워드 대량 등록</h3>
                             <p className="text-sm text-gray-600 mt-1">여러 키워드를 한번에 등록할 수 있습니다</p>
@@ -322,7 +315,8 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
                         <form onSubmit={handleTextSubmit} className="space-y-6">
                             {/* 기본 설정 */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
+                                {/* 카테고리 필드 제거 */}
+                                {/* <div>
                                     <label className="block text-sm font-semibold text-gray-700 mb-2">
                                         카테고리 <span className="text-red-500">*</span>
                                     </label>
@@ -339,7 +333,7 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
                                             </option>
                                         ))}
                                     </select>
-                                </div>
+                                </div> */}
 
                                 <div>
                                     <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -384,7 +378,7 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
                                 </div>
                             </div>
 
-                            {/* URL 입력 */}
+                            {/* 공통 URL 입력 */}
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                                     공통 URL 목록 (선택사항)
@@ -414,7 +408,7 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
                                 </button>
                                 <button
                                     type="submit"
-                                    disabled={isProcessing || !formData.keywords.trim() || !formData.category_name}
+                                    disabled={isProcessing || !formData.keywords.trim()} // 카테고리 필수 조건 제거
                                     className="px-6 py-3 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {isProcessing ? (
@@ -449,27 +443,27 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
                                             <thead>
                                                 <tr className="bg-gray-100">
                                                     <th className="border p-1 text-left">키워드</th>
-                                                    <th className="border p-1 text-left">카테고리</th>
+                                                    <th className="border p-1 text-left">카테고리</th> {/* 템플릿에는 카테고리 컬럼 유지 */}
                                                     <th className="border p-1 text-left">우선순위</th>
                                                     <th className="border p-1 text-left">URL</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 <tr>
-                                                    <td className="border p-1">폐암 치료</td>
-                                                    <td className="border p-1">cancer</td>
+                                                    <td className="border p-1">예시 키워드 1</td>
+                                                    <td className="border p-1">all</td> {/* 'all'로 통일 */}
                                                     <td className="border p-1">1</td>
                                                     <td className="border p-1">https://example.com</td>
                                                 </tr>
                                                 <tr>
-                                                    <td className="border p-1">당뇨 관리</td>
-                                                    <td className="border p-1">diabetes</td>
+                                                    <td className="border p-1">예시 키워드 2</td>
+                                                    <td className="border p-1">all</td>
                                                     <td className="border p-1">2</td>
                                                     <td className="border p-1">https://site1.com,https://site2.com</td>
                                                 </tr>
                                                 <tr>
-                                                    <td className="border p-1">건강 관리</td>
-                                                    <td className="border p-1">health</td>
+                                                    <td className="border p-1">URL 없는 키워드</td>
+                                                    <td className="border p-1">all</td>
                                                     <td className="border p-1">1</td>
                                                     <td className="border p-1 text-gray-400">(URL 없음)</td>
                                                 </tr>
@@ -522,7 +516,8 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
                             {/* 기본 설정 (엑셀용) */}
                             {excelData.length > 0 && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
+                                    {/* 기본 카테고리 필드 제거 */}
+                                    {/* <div>
                                         <label className="block text-sm font-semibold text-gray-700 mb-2">
                                             기본 카테고리 (개별 설정이 없는 경우)
                                         </label>
@@ -538,7 +533,7 @@ const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
                                                 </option>
                                             ))}
                                         </select>
-                                    </div>
+                                    </div> */}
 
                                     <div>
                                         <label className="block text-sm font-semibold text-gray-700 mb-2">

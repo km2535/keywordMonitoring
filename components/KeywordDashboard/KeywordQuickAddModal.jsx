@@ -1,14 +1,14 @@
-
+// km2535/keywordmonitoring/keywordMonitoring-8c41bec05c035d38efa4883755f1f3bcf44c30e1/components/KeywordDashboard/KeywordQuickAddModal.jsx
 import { useState } from "react";
 
 /**
  * 키워드 빠른 추가 모달 컴포넌트
  */
-const KeywordQuickAddModal = ({ isOpen, onClose, categories, onSuccess }) => {
+const KeywordQuickAddModal = ({ isOpen, onClose, categories, onSuccess }) => { // categories는 이제 'all'만 있으므로, 실제 사용 안 함
     const [formData, setFormData] = useState({
         keyword_text: "",
-        category_name: "",
-        priority: 1,
+        category_name: "all", // 기본값 'all'로 고정
+        priority: 1, // 우선순위는 Notion Select 속성으로 문자열이어야 함
         urls: [""],
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -17,7 +17,7 @@ const KeywordQuickAddModal = ({ isOpen, onClose, categories, onSuccess }) => {
     const resetForm = () => {
         setFormData({
             keyword_text: "",
-            category_name: "",
+            category_name: "all",
             priority: 1,
             urls: [""],
         });
@@ -56,16 +56,15 @@ const KeywordQuickAddModal = ({ isOpen, onClose, categories, onSuccess }) => {
         setError("");
 
         try {
-            // 빈 URL 제거
             const cleanUrls = formData.urls
                 .filter(url => url.trim() !== "")
-                .map(url => ({ url: url.trim(), type: "monitor" }));
+                .map(url => ({ url: url.trim(), type: "monitor" })); // Notion API는 단일 URL 문자열만 받음
 
             const requestData = {
-                category_name: formData.category_name,
                 keyword_text: formData.keyword_text.trim(),
-                priority: formData.priority,
-                urls: cleanUrls,
+                category_name: formData.category_name, // 서버에서 처리되지 않을 수 있음
+                priority: String(formData.priority), // Notion Select는 문자열
+                urls: cleanUrls.length > 0 ? cleanUrls[0].url : null, // Notion URL 속성 (단일)
             };
 
             const response = await fetch("/api/keywords/manage", {
@@ -141,7 +140,8 @@ const KeywordQuickAddModal = ({ isOpen, onClose, categories, onSuccess }) => {
                             />
                         </div>
 
-                        <div>
+                        {/* 카테고리 필드 제거 (통합 관리) */}
+                        {/* <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                 카테고리 <span className="text-red-500">*</span>
                             </label>
@@ -158,7 +158,7 @@ const KeywordQuickAddModal = ({ isOpen, onClose, categories, onSuccess }) => {
                                     </option>
                                 ))}
                             </select>
-                        </div>
+                        </div> */}
                     </div>
 
                     <div>
@@ -232,7 +232,7 @@ const KeywordQuickAddModal = ({ isOpen, onClose, categories, onSuccess }) => {
                         </button>
                         <button
                             type="submit"
-                            disabled={isSubmitting || !formData.keyword_text.trim() || !formData.category_name}
+                            disabled={isSubmitting || !formData.keyword_text.trim()} // 카테고리 필수 조건 제거
                             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                             {isSubmitting ? (

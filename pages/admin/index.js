@@ -1,59 +1,32 @@
+// km2535/keywordmonitoring/keywordMonitoring-8c41bec05c035d38efa4883755f1f3bcf44c30e1/pages/admin/index.js
 import Head from "next/head";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import AdminLayout from "../../components/Admin/AdminLayout";
+// useKeywordData 훅에서 통계와 키워드 데이터를 가져옵니다.
+import useKeywordData from "../../hooks/useKeywordData"; 
+import LoadingSpinner from "../../components/common/LoadingSpinner"; // LoadingSpinner 임포트
 
 const AdminDashboard = () => {
-    const [stats, setStats] = useState({
-        totalCategories: 0,
-        totalKeywords: 0,
-        totalUrls: 0,
-        activeSessions: 0,
-        recentActivity: [],
-    });
-    const [loading, setLoading] = useState(true);
+    // useKeywordData 훅을 사용하여 Notion 기반 데이터를 가져옵니다.
+    const { data, loading, error, refreshData } = useKeywordData();
 
-    useEffect(() => {
-        loadDashboardStats();
-    }, []);
+    // MySQL 기반 통계는 더 이상 사용하지 않습니다.
+    // const [stats, setStats] = useState({
+    //     totalCategories: 0,
+    //     totalKeywords: 0,
+    //     totalUrls: 0,
+    //     activeSessions: 0,
+    //     recentActivity: [],
+    // });
+    // const [loading, setLoading] = useState(true);
 
-    const loadDashboardStats = async () => {
-        try {
-            const [categoriesRes, keywordsRes, urlsRes, sessionsRes] =
-                await Promise.all([
-                    fetch("/api/categories"),
-                    fetch("/api/keywords?category=all"),
-                    fetch("/api/urls?keyword=all"),
-                    fetch("/api/scan-sessions?limit=5"),
-                ]);
+    // useEffect(() => {
+    //     loadDashboardStats();
+    // }, []);
 
-            const [categories, keywords, urls, sessions] = await Promise.all([
-                categoriesRes.json(),
-                keywordsRes.json(),
-                urlsRes.json(),
-                sessionsRes.json(),
-            ]);
-
-            setStats({
-                totalCategories: categories.success
-                    ? categories.data.length
-                    : 0,
-                totalKeywords: keywords.success ? keywords.data.length : 0,
-                totalUrls: urls.success ? urls.data.length : 0,
-                activeSessions: sessions.success
-                    ? sessions.data.filter((s) => s.scan_status === "running")
-                          .length
-                    : 0,
-                recentActivity: sessions.success
-                    ? sessions.data.slice(0, 5)
-                    : [],
-            });
-        } catch (error) {
-            console.error("Error loading dashboard stats:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
+    // loadDashboardStats 함수는 더 이상 필요 없음
+    // const loadDashboardStats = async () => { ... }
 
     const quickActions = [
         {
@@ -64,27 +37,70 @@ const AdminDashboard = () => {
             color: "bg-blue-500",
         },
         {
-            title: "URL 관리",
+            title: "URL 관리", // 이 페이지도 MySQL 기반이므로, 필요시 제거하거나 Notion 연동 후 활성화
             description: "키워드별 모니터링 URL을 관리하세요",
             href: "/admin/urls",
             icon: "🔗",
             color: "bg-green-500",
         },
         {
-            title: "카테고리 설정",
+            title: "카테고리 설정", // 이제 Notion에서 통합 관리하므로, 필요시 제거하거나 Notion 연동 후 활성화
             description: "키워드를 분류할 카테고리를 관리하세요",
             href: "/admin/categories",
             icon: "📁",
             color: "bg-purple-500",
         },
         {
-            title: "스캔 결과",
+            title: "스캔 결과", // MySQL 기반이므로, 필요시 제거하거나 Notion 연동 후 활성화
             description: "최근 스캔 결과와 트렌드를 확인하세요",
             href: "/admin/scan-sessions",
             icon: "⚡",
             color: "bg-orange-500",
         },
     ];
+
+    // useKeywordData의 로딩 상태를 사용
+    if (loading) {
+        return (
+            <AdminLayout>
+                <LoadingSpinner message="대시보드 데이터 로딩 중..." />
+            </AdminLayout>
+        );
+    }
+
+    // useKeywordData의 에러 상태를 사용
+    if (error) {
+        return (
+            <AdminLayout>
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                    <h1 className="text-3xl font-bold text-red-900 mb-4">오류 발생</h1>
+                    <p className="text-red-700 mb-4">대시보드 데이터를 불러오는데 실패했습니다: {error}</p>
+                    <button
+                        onClick={refreshData}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                    >
+                        다시 시도
+                    </button>
+                </div>
+            </AdminLayout>
+        );
+    }
+
+    // Notion에서 가져온 요약 데이터 사용
+    const summary = data?.summary || {
+        totalKeywords: 0,
+        exposedKeywords: 0,
+        notExposedKeywords: 0,
+        noUrlKeywords: 0,
+        totalUrls: 0,
+        exposureSuccessRate: 0,
+        averageExposureRate: 0,
+    };
+    
+    // Notion API는 스캔 세션 및 활동 로그를 직접 제공하지 않으므로, 이 부분은 더 이상 표시되지 않습니다.
+    const recentActivity = []; // 빈 배열로 설정
+    const activeSessions = 0; // 0으로 설정
+
 
     return (
         <>
@@ -104,34 +120,12 @@ const AdminDashboard = () => {
                         </p>
                     </div>
 
-                    {/* Stats Cards */}
+                    {/* Stats Cards - Notion 기반 데이터로 업데이트 */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                         <div className="bg-white rounded-lg shadow p-6">
                             <div className="flex items-center">
                                 <div className="flex-shrink-0">
                                     <div className="w-8 h-8 bg-blue-500 rounded-md flex items-center justify-center">
-                                        <span className="text-white font-bold">
-                                            📁
-                                        </span>
-                                    </div>
-                                </div>
-                                <div className="ml-4">
-                                    <dt className="text-sm font-medium text-gray-500">
-                                        총 카테고리
-                                    </dt>
-                                    <dd className="text-2xl font-bold text-gray-900">
-                                        {loading
-                                            ? "..."
-                                            : stats.totalCategories}
-                                    </dd>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-white rounded-lg shadow p-6">
-                            <div className="flex items-center">
-                                <div className="flex-shrink-0">
-                                    <div className="w-8 h-8 bg-green-500 rounded-md flex items-center justify-center">
                                         <span className="text-white font-bold">
                                             🔍
                                         </span>
@@ -142,7 +136,27 @@ const AdminDashboard = () => {
                                         총 키워드
                                     </dt>
                                     <dd className="text-2xl font-bold text-gray-900">
-                                        {loading ? "..." : stats.totalKeywords}
+                                        {summary.totalKeywords}
+                                    </dd>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-lg shadow p-6">
+                            <div className="flex items-center">
+                                <div className="flex-shrink-0">
+                                    <div className="w-8 h-8 bg-green-500 rounded-md flex items-center justify-center">
+                                        <span className="text-white font-bold">
+                                            ✅
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="ml-4">
+                                    <dt className="text-sm font-medium text-gray-500">
+                                        노출된 키워드
+                                    </dt>
+                                    <dd className="text-2xl font-bold text-gray-900">
+                                        {summary.exposedKeywords}
                                     </dd>
                                 </div>
                             </div>
@@ -162,7 +176,7 @@ const AdminDashboard = () => {
                                         총 URL
                                     </dt>
                                     <dd className="text-2xl font-bold text-gray-900">
-                                        {loading ? "..." : stats.totalUrls}
+                                        {summary.totalUrls}
                                     </dd>
                                 </div>
                             </div>
@@ -173,23 +187,23 @@ const AdminDashboard = () => {
                                 <div className="flex-shrink-0">
                                     <div className="w-8 h-8 bg-orange-500 rounded-md flex items-center justify-center">
                                         <span className="text-white font-bold">
-                                            ⚡
+                                            📊
                                         </span>
                                     </div>
                                 </div>
                                 <div className="ml-4">
                                     <dt className="text-sm font-medium text-gray-500">
-                                        활성 세션
+                                        노출 성공률
                                     </dt>
                                     <dd className="text-2xl font-bold text-gray-900">
-                                        {loading ? "..." : stats.activeSessions}
+                                        {summary.exposureSuccessRate}%
                                     </dd>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* Quick Actions */}
+                    {/* Quick Actions (변동 없음) */}
                     <div className="mb-8">
                         <h2 className="text-xl font-semibold text-gray-900 mb-4">
                             빠른 작업
@@ -217,7 +231,7 @@ const AdminDashboard = () => {
                         </div>
                     </div>
 
-                    {/* Recent Activity */}
+                    {/* Recent Activity (Notion API에서 직접 제공하지 않으므로 비활성화) */}
                     <div className="bg-white rounded-lg shadow">
                         <div className="px-6 py-4 border-b border-gray-200">
                             <h2 className="text-lg font-medium text-gray-900">
@@ -225,98 +239,22 @@ const AdminDashboard = () => {
                             </h2>
                         </div>
                         <div className="p-6">
+                            <div className="text-center py-8 text-gray-500">
+                                스캔 세션 활동은 현재 표시되지 않습니다. (Notion 연동 필요)
+                            </div>
+                            {/* 이전 MySQL 기반 코드 주석 처리
                             {loading ? (
                                 <div className="flex justify-center py-8">
                                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                                 </div>
                             ) : stats.recentActivity.length > 0 ? (
-                                <div className="flow-root">
-                                    <ul className="-mb-8">
-                                        {stats.recentActivity.map(
-                                            (activity, index) => (
-                                                <li key={index}>
-                                                    <div className="relative pb-8">
-                                                        {index !==
-                                                            stats.recentActivity
-                                                                .length -
-                                                                1 && (
-                                                            <span
-                                                                className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200"
-                                                                aria-hidden="true"
-                                                            />
-                                                        )}
-                                                        <div className="relative flex space-x-3">
-                                                            <div>
-                                                                <span
-                                                                    className={`h-8 w-8 rounded-full flex items-center justify-center ring-8 ring-white ${
-                                                                        activity.scan_status ===
-                                                                        "completed"
-                                                                            ? "bg-green-500"
-                                                                            : activity.scan_status ===
-                                                                              "running"
-                                                                            ? "bg-blue-500"
-                                                                            : "bg-red-500"
-                                                                    }`}
-                                                                >
-                                                                    <span className="text-white text-sm">
-                                                                        {activity.scan_status ===
-                                                                        "completed"
-                                                                            ? "✓"
-                                                                            : activity.scan_status ===
-                                                                              "running"
-                                                                            ? "⏳"
-                                                                            : "✗"}
-                                                                    </span>
-                                                                </span>
-                                                            </div>
-                                                            <div className="flex-1 min-w-0">
-                                                                <div>
-                                                                    <div className="text-sm">
-                                                                        <span className="font-medium text-gray-900">
-                                                                            {
-                                                                                activity.category_name
-                                                                            }{" "}
-                                                                            스캔
-                                                                        </span>
-                                                                        <span className="text-gray-500">
-                                                                            {activity.session_name &&
-                                                                                ` - ${activity.session_name}`}
-                                                                        </span>
-                                                                    </div>
-                                                                    <p className="mt-0.5 text-sm text-gray-500">
-                                                                        {activity.scan_status ===
-                                                                            "completed" &&
-                                                                            `${activity.processed_keywords}/${activity.total_keywords} 키워드 처리 완료`}
-                                                                        {activity.scan_status ===
-                                                                            "running" &&
-                                                                            `${activity.processed_keywords}/${activity.total_keywords} 키워드 처리 중`}
-                                                                        {activity.scan_status ===
-                                                                            "failed" &&
-                                                                            "스캔 실패"}
-                                                                    </p>
-                                                                </div>
-                                                                <div className="mt-2 text-sm text-gray-700">
-                                                                    <p>
-                                                                        {new Date(
-                                                                            activity.started_at
-                                                                        ).toLocaleString(
-                                                                            "ko-KR"
-                                                                        )}
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </li>
-                                            )
-                                        )}
-                                    </ul>
-                                </div>
+                                ...
                             ) : (
                                 <div className="text-center py-8 text-gray-500">
                                     최근 활동이 없습니다.
                                 </div>
                             )}
+                            */}
                         </div>
                     </div>
                 </div>

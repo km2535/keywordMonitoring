@@ -1,3 +1,4 @@
+// km2535/keywordmonitoring/keywordMonitoring-8c41bec05c035d38efa4883755f1f3bcf44c30e1/utils/exportUtils.js
 import * as XLSX from "xlsx";
 
 /**
@@ -9,16 +10,13 @@ import * as XLSX from "xlsx";
 export const exportToExcel = (
     keywordsData,
     filename = "keyword-export",
-    categoryName = ""
+    categoryName = "" // 이 categoryName은 파일명에만 사용됩니다.
 ) => {
     try {
-        // Prepare the data for export
         const exportData = keywordsData.map((item) => {
-            // Count exposed and non-exposed URLs
             const exposedUrls = item.urls.filter((u) => u.isExposed).length;
             const totalUrls = item.urls.length;
 
-            // Format URL data as a string
             const urlsString = item.urls
                 .map(
                     (url) => `${url.url} (${url.isExposed ? "노출" : "미노출"})`
@@ -27,7 +25,8 @@ export const exportToExcel = (
 
             return {
                 키워드: item.keyword,
-                카테고리: getCategoryLabel(item.category),
+                // 카테고리: getCategoryLabel(item.category), // 더 이상 getCategoryLabel 사용 안 함
+                카테고리: item.categoryName, // Notion에서 온 'R' 값 그대로 사용
                 "노출 상태": item.exposureStatus,
                 "노출된 URL 수": exposedUrls,
                 "전체 URL 수": totalUrls,
@@ -35,10 +34,8 @@ export const exportToExcel = (
             };
         });
 
-        // Create worksheet
         const ws = XLSX.utils.json_to_sheet(exportData);
 
-        // Set column widths
         const columnWidths = [
             { wch: 20 }, // 키워드
             { wch: 10 }, // 카테고리
@@ -49,17 +46,14 @@ export const exportToExcel = (
         ];
         ws["!cols"] = columnWidths;
 
-        // Create workbook
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "키워드 데이터");
 
-        // Generate filename with timestamp and category if provided
         const timestamp = new Date().toISOString().split("T")[0];
         const finalFilename = categoryName
             ? `${filename}-${categoryName}-${timestamp}.xlsx`
             : `${filename}-${timestamp}.xlsx`;
 
-        // Save the file
         XLSX.writeFile(wb, finalFilename);
 
         return true;
@@ -67,21 +61,6 @@ export const exportToExcel = (
         console.error("Excel 내보내기 오류:", error);
         return false;
     }
-};
-
-/**
- * Get human-readable category label
- * @param {String} categoryId - The category identifier
- * @returns {String} - The human-readable category name
- */
-const getCategoryLabel = (categoryId) => {
-    const categories = {
-        cancer: "암",
-        diabetes: "당뇨",
-        cosmetics: "갱년기",
-    };
-
-    return categories[categoryId] || categoryId;
 };
 
 /**
@@ -96,9 +75,10 @@ export const exportSummaryToExcel = (
     try {
         // Prepare summary data for each category
         const exportData = Object.entries(summaryData).map(
-            ([category, data]) => {
+            ([categoryKey, data]) => { // categoryKey는 'all' 또는 'R1', 'R2' 등이 될 수 있음
                 return {
-                    카테고리: getCategoryLabel(category),
+                    // 카테고리: getCategoryLabel(category), // getCategoryLabel 사용 제거
+                    카테고리: categoryKey === "all" ? "전체" : categoryKey, // 'all'은 '전체'로, 나머지는 'R' 값 그대로
                     "총 키워드 수": data.totalKeywords,
                     "URL이 있는 키워드 수": data.keywordsWithUrls,
                     "노출된 키워드 수": data.exposedKeywords,
@@ -109,10 +89,8 @@ export const exportSummaryToExcel = (
             }
         );
 
-        // Create worksheet
         const ws = XLSX.utils.json_to_sheet(exportData);
 
-        // Set column widths
         const columnWidths = [
             { wch: 15 }, // 카테고리
             { wch: 15 }, // 총 키워드 수
@@ -124,15 +102,12 @@ export const exportSummaryToExcel = (
         ];
         ws["!cols"] = columnWidths;
 
-        // Create workbook
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "요약 데이터");
 
-        // Generate filename with timestamp
         const timestamp = new Date().toISOString().split("T")[0];
         const finalFilename = `${filename}-${timestamp}.xlsx`;
 
-        // Save the file
         XLSX.writeFile(wb, finalFilename);
 
         return true;

@@ -1,5 +1,5 @@
-// pages/api/statistics.js - 최적화된 버전
-import { executeQuery, getPoolStatus } from "../../lib/database";
+// km2535/keywordmonitoring/keywordMonitoring-8c41bec05c035d38efa4883755f1f3bcf44c30e1/pages/api/statistics.js
+import { queryAllNotionPages } from "../../lib/notion";
 
 export default async function handler(req, res) {
     if (req.method !== "GET") {
@@ -9,231 +9,146 @@ export default async function handler(req, res) {
     let startTime = Date.now();
     
     try {
-        const { category } = req.query;
-        console.log("Statistics API called with category:", category);
-        console.log("Pool status before:", getPoolStatus());
+        // 클라이언트에서 요청한 카테고리 (all, R1, R2 등)
+        const { category } = req.query; 
+        console.log("Statistics API called for category:", category);
 
-        // 단일 복합 쿼리로 모든 통계를 한 번에 계산
-        const statsQuery = `
-            WITH latest_scan_results AS (
-                SELECT 
-                    k.id as keyword_id,
-                    c.name as category_name,
-                    c.display_name as category_display_name,
-                    COUNT(ku.id) as total_urls_scanned,
-                    COALESCE(SUM(CASE WHEN usd.is_exposed = 1 THEN 1 ELSE 0 END), 0) as exposed_urls_count,
-                    COALESCE(SUM(CASE WHEN usd.is_exposed = 0 THEN 1 ELSE 0 END), 0) as hidden_urls_count,
-                    COALESCE(SUM(CASE WHEN usd.is_exposed IS NULL THEN 1 ELSE 0 END), 0) as error_urls_count,
-                    CASE 
-                        WHEN COUNT(ku.id) = 0 THEN 0
-                        ELSE ROUND((SUM(CASE WHEN usd.is_exposed = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(ku.id)), 2)
-                    END as exposure_rate_percent,
-                    MAX(usd.scanned_at) as scanned_at
-                FROM keywords k
-                JOIN categories c ON k.category_id = c.id
-                LEFT JOIN keyword_urls ku ON k.id = ku.keyword_id AND ku.is_active = 1
-                LEFT JOIN (
-                    SELECT 
-                        usd.*,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY usd.keyword_url_id 
-                            ORDER BY usd.scanned_at DESC
-                        ) as rn
-                    FROM url_scan_details usd
-                    JOIN scan_results sr ON usd.scan_result_id = sr.id
-                    JOIN scan_sessions ss ON sr.session_id = ss.id
-                    WHERE ss.scan_status = 'completed'
-                ) usd ON ku.id = usd.keyword_url_id AND usd.rn = 1
-                WHERE k.is_active = 1 AND c.is_active = 1
-                ${category && category !== "all" ? "AND c.name = ?" : ""}
-                GROUP BY k.id, c.name, c.display_name
-            ),
-            aggregated_stats AS (
-                SELECT 
-                    lsr.category_name,
-                    lsr.category_display_name,
-                    COALESCE(SUM(lsr.total_urls_scanned), 0) as total_urls,
-                    COALESCE(SUM(lsr.exposed_urls_count), 0) as exposed_urls,
-                    COALESCE(SUM(lsr.hidden_urls_count), 0) as hidden_urls,
-                    COALESCE(SUM(lsr.error_urls_count), 0) as error_urls,
-                    COUNT(DISTINCT lsr.keyword_id) as total_keywords,
-                    COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned > 0 THEN lsr.keyword_id END) as keywords_with_urls,
-                    COUNT(DISTINCT CASE WHEN lsr.exposed_urls_count > 0 THEN lsr.keyword_id END) as exposed_keywords,
-                    COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned > 0 AND lsr.exposed_urls_count = 0 THEN lsr.keyword_id END) as not_exposed_keywords,
-                    COUNT(DISTINCT CASE WHEN lsr.total_urls_scanned = 0 THEN lsr.keyword_id END) as no_url_keywords,
-                    COALESCE(AVG(lsr.exposure_rate_percent), 0) as avg_exposure_rate,
-                    MAX(lsr.scanned_at) as last_scan_time
-                FROM latest_scan_results lsr
-                GROUP BY lsr.category_name, lsr.category_display_name
-            )
-            SELECT 
-                ${category === "all" || !category ? "'all'" : "category_name"} as category_name,
-                ${category === "all" || !category ? "'전체'" : "category_display_name"} as category_display_name,
-                SUM(total_urls) as total_urls,
-                SUM(exposed_urls) as exposed_urls,
-                SUM(hidden_urls) as hidden_urls,
-                SUM(error_urls) as error_urls,
-                SUM(total_keywords) as total_keywords,
-                SUM(keywords_with_urls) as keywords_with_urls,
-                SUM(exposed_keywords) as exposed_keywords,
-                SUM(not_exposed_keywords) as not_exposed_keywords,
-                SUM(no_url_keywords) as no_url_keywords,
-                AVG(avg_exposure_rate) as avg_exposure_rate,
-                MAX(last_scan_time) as last_scan_time
-            FROM aggregated_stats
-            ${category === "all" || !category ? "" : "WHERE category_name = ?"}
-            ${category === "all" || !category ? "" : "GROUP BY category_name, category_display_name"}
-        `;
+        const rawNotionPages = await queryAllNotionPages();
 
-        const params = [];
-        if (category && category !== "all") {
-            params.push(category);
-            if (category !== "all") {
-                params.push(category);
-            }
-        }
-
-        console.log("Executing optimized statistics query...");
-        const stats = await executeQuery(statsQuery, params);
-        console.log(`Statistics query completed in ${Date.now() - startTime}ms`);
-
-        // 기본값 설정
-        const stat = stats[0] || {
-            total_keywords: 0,
-            keywords_with_urls: 0,
-            exposed_keywords: 0,
-            not_exposed_keywords: 0,
-            no_url_keywords: 0,
-            total_urls: 0,
-            exposed_urls: 0,
-            hidden_urls: 0,
-            error_urls: 0,
-            avg_exposure_rate: 0,
+        // 각 'R' 값(카테고리)별 통계 데이터를 저장할 맵
+        const categoryStats = {};
+        // 전체 요약을 위한 변수
+        let allSummary = {
+            totalKeywords: 0,
+            keywordsWithUrls: 0,
+            exposedKeywords: 0,
+            notExposedKeywords: 0,
+            noUrlKeywords: 0,
+            totalUrls: 0,
+            exposedUrls: 0,
+            hiddenUrls: 0,
+            errorUrls: 0,
+            exposureSuccessRate: 0,
+            averageExposureRate: 0, // Notion API는 직접적인 랭크가 없으므로 계산 방식 고려
+            exposureStatsData: [
+                { name: "노출됨", value: 0 },
+                { name: "노출 안됨", value: 0 },
+                { name: "URL 없음", value: 0 },
+            ],
         };
 
-        const exposureSuccessRate = stat.keywords_with_urls > 0
-            ? Math.round((stat.exposed_keywords / stat.keywords_with_urls) * 100)
-            : 0;
+        rawNotionPages.forEach(page => {
+            const properties = page.properties;
+            const keywordText = properties?.['키워드']?.title?.[0]?.plain_text || '';
+            const originalUrl = properties?.['기존글url']?.url || null;
+            const exposureStatusNotion = properties?.['상위 노출 여부']?.status?.name || '미확인';
+            const rValue = properties?.['R']?.select?.name || 'N/A'; // 'R' 속성 값
 
-        const exposureStatsData = [
-            { name: "노출됨", value: parseInt(stat.exposed_keywords) || 0 },
-            { name: "노출 안됨", value: parseInt(stat.not_exposed_keywords) || 0 },
-            { name: "URL 없음", value: parseInt(stat.no_url_keywords) || 0 },
+            // 'R' 값별 통계 초기화
+            if (!categoryStats[rValue]) {
+                categoryStats[rValue] = {
+                    totalKeywords: 0,
+                    keywordsWithUrls: 0,
+                    exposedKeywords: 0,
+                    notExposedKeywords: 0,
+                    noUrlKeywords: 0,
+                    totalUrls: 0,
+                    exposedUrls: 0,
+                    hiddenUrls: 0,
+                    errorUrls: 0,
+                    exposureSuccessRate: 0,
+                    averageExposureRate: 0,
+                    exposureStatsData: [
+                        { name: "노출됨", value: 0 },
+                        { name: "노출 안됨", value: 0 },
+                        { name: "URL 없음", value: 0 },
+                    ],
+                };
+            }
+
+            // 키워드가 유효한 경우만 통계에 포함
+            if (keywordText) {
+                categoryStats[rValue].totalKeywords++;
+                allSummary.totalKeywords++;
+
+                const urlsData = [];
+                if (originalUrl) {
+                    urlsData.push({ url: originalUrl });
+                }
+
+                if (urlsData.length > 0) {
+                    categoryStats[rValue].keywordsWithUrls++;
+                    allSummary.keywordsWithUrls++;
+                    categoryStats[rValue].totalUrls += urlsData.length;
+                    allSummary.totalUrls += urlsData.length;
+
+                    if (exposureStatusNotion === "최상단 노출") {
+                        categoryStats[rValue].exposedKeywords++;
+                        allSummary.exposedKeywords++;
+                        categoryStats[rValue].exposedUrls += urlsData.length;
+                        allSummary.exposedUrls += urlsData.length;
+                    } else if (exposureStatusNotion === "노출X" || exposureStatusNotion === "저품질") {
+                        categoryStats[rValue].notExposedKeywords++;
+                        allSummary.notExposedKeywords++;
+                        categoryStats[rValue].hiddenUrls += urlsData.length;
+                        allSummary.hiddenUrls += urlsData.length;
+                    } else if (exposureStatusNotion === "미발행") {
+                        categoryStats[rValue].noUrlKeywords++; // URL은 있지만 '미발행' 상태
+                        allSummary.noUrlKeywords++;
+                    } else { // 기타 미확인 상태
+                        categoryStats[rValue].errorUrls += urlsData.length;
+                        allSummary.errorUrls += urlsData.length;
+                    }
+                } else {
+                    categoryStats[rValue].noUrlKeywords++;
+                    allSummary.noUrlKeywords++;
+                }
+            }
+        });
+
+        // 각 카테고리 및 전체에 대한 노출 성공률 계산
+        for (const rVal in categoryStats) {
+            const stats = categoryStats[rVal];
+            stats.exposureSuccessRate = stats.keywordsWithUrls > 0 ? Math.round((stats.exposedKeywords / stats.keywordsWithUrls) * 100) : 0;
+            stats.averageExposureRate = stats.exposureSuccessRate; // Notion API는 평균 랭크 직접 제공 안 함
+            stats.exposureStatsData = [
+                { name: "노출됨", value: stats.exposedKeywords },
+                { name: "노출 안됨", value: stats.notExposedKeywords },
+                { name: "URL 없음", value: stats.noUrlKeywords + (stats.totalKeywords - stats.keywordsWithUrls - stats.noUrlKeywords) },
+            ];
+        }
+
+        allSummary.exposureSuccessRate = allSummary.keywordsWithUrls > 0 ? Math.round((allSummary.exposedKeywords / allSummary.keywordsWithUrls) * 100) : 0;
+        allSummary.averageExposureRate = allSummary.exposureSuccessRate;
+        allSummary.exposureStatsData = [
+            { name: "노출됨", value: allSummary.exposedKeywords },
+            { name: "노출 안됨", value: allSummary.notExposedKeywords },
+            { name: "URL 없음", value: allSummary.noUrlKeywords + (allSummary.totalKeywords - allSummary.keywordsWithUrls - allSummary.noUrlKeywords) },
         ];
 
-        const summary = {
-            totalKeywords: parseInt(stat.total_keywords) || 0,
-            keywordsWithUrls: parseInt(stat.keywords_with_urls) || 0,
-            exposedKeywords: parseInt(stat.exposed_keywords) || 0,
-            notExposedKeywords: parseInt(stat.not_exposed_keywords) || 0,
-            noUrlKeywords: parseInt(stat.no_url_keywords) || 0,
-            totalUrls: parseInt(stat.total_urls) || 0,
-            exposedUrls: parseInt(stat.exposed_urls) || 0,
-            hiddenUrls: parseInt(stat.hidden_urls) || 0,
-            errorUrls: parseInt(stat.error_urls) || 0,
-            exposureSuccessRate,
-            averageExposureRate: Math.round(parseFloat(stat.avg_exposure_rate) || 0),
-            lastScanTime: stat.last_scan_time,
-            exposureStatsData,
-        };
 
-        // 카테고리별 데이터는 요청시에만 가져오기
-        let categoryData = {};
-        if (category === "all" || !category) {
-            try {
-                const categoryStatsQuery = `
-                    WITH latest_scan_results AS (
-                        SELECT 
-                            k.id as keyword_id,
-                            c.name as category_name,
-                            c.display_name as category_display_name,
-                            COUNT(ku.id) as total_urls_scanned,
-                            COALESCE(SUM(CASE WHEN usd.is_exposed = 1 THEN 1 ELSE 0 END), 0) as exposed_urls_count,
-                            COALESCE(SUM(CASE WHEN usd.is_exposed = 0 THEN 1 ELSE 0 END), 0) as hidden_urls_count,
-                            COALESCE(SUM(CASE WHEN usd.is_exposed IS NULL THEN 1 ELSE 0 END), 0) as error_urls_count,
-                            CASE 
-                                WHEN COUNT(ku.id) = 0 THEN 0
-                                ELSE ROUND((SUM(CASE WHEN usd.is_exposed = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(ku.id)), 2)
-                            END as exposure_rate_percent
-                        FROM keywords k
-                        JOIN categories c ON k.category_id = c.id
-                        LEFT JOIN keyword_urls ku ON k.id = ku.keyword_id AND ku.is_active = 1
-                        LEFT JOIN (
-                            SELECT 
-                                usd.*,
-                                ROW_NUMBER() OVER (
-                                    PARTITION BY usd.keyword_url_id 
-                                    ORDER BY usd.scanned_at DESC
-                                ) as rn
-                            FROM url_scan_details usd
-                            JOIN scan_results sr ON usd.scan_result_id = sr.id
-                            JOIN scan_sessions ss ON sr.session_id = ss.id
-                            WHERE ss.scan_status = 'completed'
-                        ) usd ON ku.id = usd.keyword_url_id AND usd.rn = 1
-                        WHERE k.is_active = 1 AND c.is_active = 1
-                        GROUP BY k.id, c.name, c.display_name
-                    )
-                    SELECT 
-                        category_name,
-                        category_display_name,
-                        COALESCE(SUM(total_urls_scanned), 0) as total_urls,
-                        COALESCE(SUM(exposed_urls_count), 0) as exposed_urls,
-                        COALESCE(SUM(hidden_urls_count), 0) as hidden_urls,
-                        COALESCE(SUM(error_urls_count), 0) as error_urls,
-                        COUNT(DISTINCT keyword_id) as total_keywords,
-                        COUNT(DISTINCT CASE WHEN total_urls_scanned > 0 THEN keyword_id END) as keywords_with_urls,
-                        COUNT(DISTINCT CASE WHEN exposed_urls_count > 0 THEN keyword_id END) as exposed_keywords,
-                        COUNT(DISTINCT CASE WHEN total_urls_scanned > 0 AND exposed_urls_count = 0 THEN keyword_id END) as not_exposed_keywords,
-                        COUNT(DISTINCT CASE WHEN total_urls_scanned = 0 THEN keyword_id END) as no_url_keywords,
-                        COALESCE(AVG(exposure_rate_percent), 0) as avg_exposure_rate
-                    FROM latest_scan_results
-                    GROUP BY category_name, category_display_name
-                    ORDER BY category_name
-                `;
-
-                const categoryStats = await executeQuery(categoryStatsQuery);
-                
-                categoryStats.forEach((catStat) => {
-                    const catSuccessRate = catStat.keywords_with_urls > 0
-                        ? Math.round((catStat.exposed_keywords / catStat.keywords_with_urls) * 100)
-                        : 0;
-
-                    categoryData[catStat.category_name] = {
-                        summary: {
-                            totalKeywords: parseInt(catStat.total_keywords) || 0,
-                            keywordsWithUrls: parseInt(catStat.keywords_with_urls) || 0,
-                            exposedKeywords: parseInt(catStat.exposed_keywords) || 0,
-                            notExposedKeywords: parseInt(catStat.not_exposed_keywords) || 0,
-                            noUrlKeywords: parseInt(catStat.no_url_keywords) || 0,
-                            totalUrls: parseInt(catStat.total_urls) || 0,
-                            exposedUrls: parseInt(catStat.exposed_urls) || 0,
-                            hiddenUrls: parseInt(catStat.hidden_urls) || 0,
-                            errorUrls: parseInt(catStat.error_urls) || 0,
-                            exposureSuccessRate: catSuccessRate,
-                            averageExposureRate: Math.round(parseFloat(catStat.avg_exposure_rate) || 0),
-                            lastScanTime: catStat.last_scan_time,
-                            exposureStatsData: [
-                                { name: "노출됨", value: parseInt(catStat.exposed_keywords) || 0 },
-                                { name: "노출 안됨", value: parseInt(catStat.not_exposed_keywords) || 0 },
-                                { name: "URL 없음", value: parseInt(catStat.no_url_keywords) || 0 },
-                            ],
-                        },
-                    };
-                });
-            } catch (categoryError) {
-                console.error("Error fetching category stats:", categoryError);
-            }
-        }
-
-        console.log("Pool status after:", getPoolStatus());
+        console.log("Calculated summary for category:", category);
         console.log(`Total execution time: ${Date.now() - startTime}ms`);
+
+        // 요청된 카테고리에 따라 데이터를 필터링하여 반환
+        let responseSummary = allSummary;
+        let responseCategoryData = categoryStats;
+
+        if (category && category !== 'all' && categoryStats[category]) {
+            responseSummary = categoryStats[category];
+            responseCategoryData = { [category]: categoryStats[category] }; // 요청된 카테고리만 포함
+        } else {
+            // 'all'이 요청되었거나 특정 카테고리가 없으면 전체 요약을 반환
+            responseSummary = allSummary;
+            responseCategoryData = categoryStats; // 모든 카테고리 데이터 반환
+        }
 
         res.status(200).json({
             success: true,
             data: {
-                summary,
-                categoryData,
-                allSummary: summary,
+                summary: responseSummary, // 특정 카테고리 또는 전체 요약
+                categoryData: responseCategoryData, // 모든 카테고리 또는 특정 카테고리 데이터
+                allSummary: allSummary, // 항상 전체 요약
                 timestamp: new Date().toISOString(),
             },
             executionTime: Date.now() - startTime,
@@ -241,10 +156,9 @@ export default async function handler(req, res) {
 
     } catch (error) {
         console.error("Statistics API error:", error);
-        console.log("Pool status on error:", getPoolStatus());
         res.status(500).json({
             success: false,
-            message: "Failed to fetch statistics",
+            message: "Failed to fetch statistics from Notion",
             error: error.message,
             executionTime: Date.now() - startTime,
         });

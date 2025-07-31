@@ -1,195 +1,111 @@
-import React from "react";
+// km2535/keywordmonitoring/keywordMonitoring-8c41bec05c035d38efa4883755f1f3bcf44c30e1/components/common/Summary/CategoryCharts.jsx
 import {
-    Bar,
-    BarChart,
-    CartesianGrid,
-    Cell,
-    Legend,
-    Pie,
-    PieChart,
-    ResponsiveContainer,
+    Chart as ChartJS,
+    ArcElement,
     Tooltip,
-    XAxis,
-    YAxis,
-} from "recharts";
+    Legend,
+    CategoryScale,
+    LinearScale,
+} from "chart.js";
+import { Pie } from "recharts";
+
+// Chart.js 모듈 등록
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale);
 
 /**
- * Component for displaying category-specific charts
+ * Component for displaying summary charts by category
  */
-const CategoryCharts = ({ rawData, categories }) => {
-    // Color palette for charts
-    const CHART_COLORS = ["#10b981", "#f87171", "#6b7280"];
-
-    // If no data is available
+const CategoryCharts = ({ rawData, categories }) => { // categories는 { 'all': {}, 'R1': {}, ...} 형태
     if (!rawData || !rawData.categoryData) {
         return null;
     }
 
-    // Get category data for charts
-    const getCategoryData = (categoryId) => {
-        if (!rawData.categoryData[categoryId]) return null;
-        return rawData.categoryData[categoryId].summary.exposureStatsData;
+    const categoryData = rawData.categoryData;
+
+    // 'all' 카테고리를 제외한 실제 'R' 값 카테고리만 필터링
+    const rCategories = Object.entries(categoryData).filter(([rValue]) => rValue !== 'all');
+
+    // 각 'R' 카테고리별 차트 데이터 생성
+    const getChartData = (stats) => {
+        return {
+            labels: ["노출된 키워드", "노출 안된 키워드", "URL 없는 키워드"],
+            datasets: [
+                {
+                    data: [
+                        stats.exposedKeywords,
+                        stats.notExposedKeywords,
+                        stats.noUrlKeywords,
+                    ],
+                    backgroundColor: [
+                        "rgba(75, 192, 192, 0.6)", // exposed
+                        "rgba(255, 99, 132, 0.6)", // not exposed
+                        "rgba(200, 200, 200, 0.6)", // no URL
+                    ],
+                    borderColor: [
+                        "rgba(75, 192, 192, 1)",
+                        "rgba(255, 99, 132, 1)",
+                        "rgba(200, 200, 200, 1)",
+                    ],
+                    borderWidth: 1,
+                },
+            ],
+        };
     };
 
-    // Get category name
-    const getCategoryName = (categoryId) => {
-        return categories[categoryId]?.name || categoryId;
+    const chartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: "bottom",
+                labels: {
+                    font: {
+                        size: 12,
+                    },
+                },
+            },
+            tooltip: {
+                callbacks: {
+                    label: function (context) {
+                        const label = context.label || "";
+                        const value = context.parsed;
+                        const total = context.dataset.data.reduce((acc, val) => acc + val, 0);
+                        const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                        return `${label}: ${value}개 (${percentage}%)`;
+                    },
+                },
+            },
+        },
     };
+
+    if (rCategories.length === 0) {
+        return (
+            <div className="bg-white p-6 rounded-lg shadow mb-6 text-center text-gray-500">
+                <p>표시할 카테고리별 차트 데이터가 없습니다.</p>
+            </div>
+        );
+    }
 
     return (
-        <div className="mb-6">
-            <h2 className="text-lg font-semibold mb-4 text-gray-700">
-                카테고리별 노출 상태 분포
+        <div className="bg-white p-6 rounded-lg shadow mb-6">
+            <h2 className="text-lg font-semibold text-gray-700 mb-4">
+                카테고리별 노출 현황 (파이 차트)
             </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                {Object.keys(categories).map((categoryId) => {
-                    const chartData = getCategoryData(categoryId);
-                    if (!chartData) return null;
-
-                    return (
-                        <div
-                            key={categoryId}
-                            className="bg-white p-4 rounded-lg shadow"
-                        >
-                            <h3 className="text-md font-medium mb-3 text-gray-700 text-center">
-                                {getCategoryName(categoryId)} 카테고리
-                            </h3>
-                            <div className="h-60">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart>
-                                        <Pie
-                                            data={chartData}
-                                            cx="50%"
-                                            cy="50%"
-                                            labelLine={false}
-                                            outerRadius={80}
-                                            fill="#8884d8"
-                                            dataKey="value"
-                                            label={({ name, percent }) =>
-                                                `${name}: ${(
-                                                    percent * 100
-                                                ).toFixed(0)}%`
-                                            }
-                                        >
-                                            {chartData.map((entry, index) => (
-                                                <Cell
-                                                    key={`cell-${index}`}
-                                                    fill={
-                                                        CHART_COLORS[
-                                                            index %
-                                                                CHART_COLORS.length
-                                                        ]
-                                                    }
-                                                />
-                                            ))}
-                                        </Pie>
-                                        <Tooltip
-                                            formatter={(value) => [
-                                                value,
-                                                "키워드 수",
-                                            ]}
-                                        />
-                                        <Legend
-                                            layout="horizontal"
-                                            verticalAlign="bottom"
-                                            align="center"
-                                        />
-                                    </PieChart>
-                                </ResponsiveContainer>
-                            </div>
-
-                            <div className="mt-2 text-center">
-                                <p className="text-sm text-gray-600">
-                                    총 키워드:{" "}
-                                    {
-                                        rawData.categoryData[categoryId].summary
-                                            .totalKeywords
-                                    }
-                                    개
-                                </p>
-                                <p className="text-sm text-gray-600">
-                                    노출 성공률:
-                                    <span
-                                        className={`ml-1 font-medium ${
-                                            rawData.categoryData[categoryId]
-                                                .summary.exposureSuccessRate >
-                                            70
-                                                ? "text-green-600"
-                                                : rawData.categoryData[
-                                                      categoryId
-                                                  ].summary
-                                                      .exposureSuccessRate > 40
-                                                ? "text-yellow-600"
-                                                : "text-red-600"
-                                        }`}
-                                    >
-                                        {
-                                            rawData.categoryData[categoryId]
-                                                .summary.exposureSuccessRate
-                                        }
-                                        %
-                                    </span>
-                                </p>
-                            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {rCategories.map(([rValue, stats]) => (
+                    <div key={rValue} className="p-4 border border-gray-200 rounded-lg shadow-sm">
+                        <h3 className="text-md font-bold text-gray-800 mb-3 text-center">{rValue}</h3>
+                        <div className="h-64"> {/* 차트 높이 고정 */}
+                            {stats.totalKeywords > 0 ? (
+                                <Pie data={getChartData(stats)} options={chartOptions} />
+                            ) : (
+                                <div className="text-center py-8 text-gray-500">
+                                    <p>해당 카테고리에 키워드가 없습니다.</p>
+                                </div>
+                            )}
                         </div>
-                    );
-                })}
-            </div>
-
-            {/* Comparison Bar Chart */}
-            <div className="bg-white p-6 rounded-lg shadow">
-                <h3 className="text-md font-medium mb-4 text-gray-700">
-                    카테고리별 노출 현황 비교
-                </h3>
-                <div className="h-80">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                            data={Object.keys(categories)
-                                .map((categoryId) => {
-                                    const summary =
-                                        rawData.categoryData[categoryId]
-                                            ?.summary;
-                                    if (!summary) return null;
-
-                                    return {
-                                        name: getCategoryName(categoryId),
-                                        노출됨: summary.exposedKeywords,
-                                        "노출 안됨": summary.notExposedKeywords,
-                                        "URL 없음": summary.noUrlKeywords,
-                                    };
-                                })
-                                .filter(Boolean)}
-                            margin={{
-                                top: 20,
-                                right: 30,
-                                left: 20,
-                                bottom: 60,
-                            }}
-                        >
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="name" />
-                            <YAxis />
-                            <Tooltip />
-                            <Legend />
-                            <Bar
-                                dataKey="노출됨"
-                                stackId="a"
-                                fill={CHART_COLORS[0]}
-                            />
-                            <Bar
-                                dataKey="노출 안됨"
-                                stackId="a"
-                                fill={CHART_COLORS[1]}
-                            />
-                            <Bar
-                                dataKey="URL 없음"
-                                stackId="a"
-                                fill={CHART_COLORS[2]}
-                            />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
+                    </div>
+                ))}
             </div>
         </div>
     );

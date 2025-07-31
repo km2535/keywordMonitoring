@@ -13,26 +13,16 @@ const CategorySelector = ({
                     카테고리:
                 </span>
                 <div className="flex flex-wrap gap-2">
-                    <button
-                        className={`px-3 py-1 text-sm rounded-full ${
-                            activeCategory === "all"
-                                ? "bg-blue-100 text-blue-800 border border-blue-300"
-                                : "bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200"
-                        }`}
-                        onClick={() => setActiveCategory("all")}
-                    >
-                        전체
-                    </button>
-
                     {Object.entries(categories).map(([id, category]) => (
+                        
                         <button
                             key={id}
                             className={`px-3 py-1 text-sm rounded-full ${
-                                activeCategory === id
+                                activeCategory === category.id
                                     ? "bg-blue-100 text-blue-800 border border-blue-300"
                                     : "bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200"
                             }`}
-                            onClick={() => setActiveCategory(id)}
+                            onClick={() => setActiveCategory(category.id)}
                         >
                             {category.name}
                         </button>

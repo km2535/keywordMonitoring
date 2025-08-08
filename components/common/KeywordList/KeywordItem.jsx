@@ -1,10 +1,10 @@
 // km2535/keywordmonitoring/keywordMonitoring-7dd76531bb759dbc7bc76a1ffe621814538d8846/components/common/KeywordList/KeywordItem.jsx
-import React, { useState } from "react";
+import React from "react";
 
 /**
  * Component for displaying individual keyword items
  */
-const KeywordItem = ({ item, index, categories }) => {
+const KeywordItem = ({ item, index }) => {
     // Notion의 새로운 상태 옵션에 맞게 업데이트
     const getStatusClass = (status) => {
         switch (status) {

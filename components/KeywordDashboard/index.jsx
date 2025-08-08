@@ -13,21 +13,11 @@ import {
     CategoryCharts, // 다시 사용
     CategorySummaryTable,
     SummaryCards,
-    SummaryCharts,
 } from "../common/Summary";
 import KeywordQuickAddModal from "./KeywordQuickAddModal"; // Quick Add Modal 임포트
 
 // 헤더 액션 버튼들 (useKeywordData에서 refreshData를 받도록 변경)
-const HeaderActions = ({ onAddKeyword, onBulkAdd, onRefresh }) => {
-    const [showDropdown, setShowDropdown] = useState(false);
-
-    const menuItems = [
-        { name: "키워드 관리", href: "/admin/keywords", icon: "🔍" },
-        { name: "카테고리 관리", href: "/admin/categories", icon: "📁" },
-        { name: "스캔 결과", href: "/admin/scan-sessions", icon: "⚡" },
-        { name: "노출 트렌드", href: "/admin/trends", icon: "📈" },
-    ];
-
+const HeaderActions = ({ onRefresh }) => {
     return (
         <div className="flex items-center gap-3">
             {/* 새로고침 버튼 */}

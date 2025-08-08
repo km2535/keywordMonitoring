@@ -1,5 +1,5 @@
 // km2535/keywordmonitoring/keywordMonitoring-8c41bec05c035d38efa4883755f1f3bcf44c30e1/pages/api/keywords/manage.js
-import { updateNotionPage, queryAllNotionPages, getNotionDatabaseSchema } from "../../../lib/notion";
+import { updateNotionPage } from "../../../lib/notion";
 
 export default async function handler(req, res) {
     if (req.method === "POST") {

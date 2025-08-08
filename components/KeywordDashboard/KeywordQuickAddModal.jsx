@@ -4,7 +4,7 @@ import { useState } from "react";
 /**
  * 키워드 빠른 추가 모달 컴포넌트
  */
-const KeywordQuickAddModal = ({ isOpen, onClose, categories, onSuccess }) => { // categories는 이제 'all'만 있으므로, 실제 사용 안 함
+const KeywordQuickAddModal = ({ isOpen, onClose, onSuccess }) => { // categories는 이제 'all'만 있으므로, 실제 사용 안 함
     const [formData, setFormData] = useState({
         keyword_text: "",
         category_name: "all", // 기본값 'all'로 고정

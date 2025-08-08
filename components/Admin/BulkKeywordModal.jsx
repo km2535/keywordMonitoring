@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 /**
  * 키워드 대량 등록 모달 컴포넌트
  */
-const BulkKeywordModal = ({ isOpen, onClose, categories, onSuccess }) => {
+const BulkKeywordModal = ({ isOpen, onClose, onSuccess }) => {
     const [activeTab, setActiveTab] = useState("text"); // "text" 또는 "excel"
     const [formData, setFormData] = useState({
         // category_name: "", // 카테고리 필드는 더 이상 UI에 표시 안 함

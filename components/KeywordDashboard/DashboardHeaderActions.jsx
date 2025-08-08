@@ -3,7 +3,7 @@ import { useState } from "react";
 /**
  * 대시보드 헤더에 표시될 액션 버튼들
  */
-const DashboardHeaderActions = ({ categories, onKeywordAdded }) => {
+const DashboardHeaderActions = () => {
     const [showQuickActions, setShowQuickActions] = useState(false);
 
     const quickActions = [

@@ -4,7 +4,7 @@ import { exportSummaryToExcel } from "../../../utils/exportUtils"; // utils/expo
 /**
  * Component for displaying summary statistics by category
  */
-const CategorySummaryTable = ({ rawData, categories, activeCategory }) => {
+const CategorySummaryTable = ({ rawData }) => {
     // rawData.categoryData는 이제 { 'R1': {stats}, 'R2': {stats}, ...} 형태
     // categories는 { 'all': {}, 'R1': {}, ... } 형태
     if (!rawData || !rawData.allSummary || !rawData.categoryData) {

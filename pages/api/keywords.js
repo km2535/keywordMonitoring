@@ -21,30 +21,52 @@ export default async function handler(req, res) {
             const pageId = page.id;
 
             const keywordText = properties?.['키워드']?.title?.[0]?.plain_text || '';
-            const originalUrl = properties?.['기존글url']?.url || null;
+            const originalUrlText = properties?.['기존글url']?.url || '';
+            const writtenUrlText = properties?.['작성 글 URL']?.url || ''; // 새로 추가된 속성
             const exposureStatusNotion = properties?.['상위 노출 여부']?.status?.name || '미확인';
             const priority = properties?.['우선순위']?.select?.name || 'N/A';
             const updatedAt = properties?.['업데이트 날짜']?.date?.start || null;
             
             // 'R' 속성 값을 카테고리로 사용
-            const rValue = properties?.['R']?.select?.name || 'N/A'; // 'R1', 'R2', 'R3' 등의 값
+            const rValue = properties?.['R']?.select?.name || 'N/A'; // 'R1', R2', 'R3' 등의 값
             const categoryNameForUI = rValue; // 'R' 속성 값을 categoryName으로 사용
-            console.log(categoryNameForUI)
             const urlsData = [];
-            if (originalUrl) {
-                let isExposedInUrl = null;
-                if (exposureStatusNotion === "최상단 노출") {
-                    isExposedInUrl = true;
-                } else if (exposureStatusNotion === "노출X" || exposureStatusNotion === "저품질") {
-                    isExposedInUrl = false;
-                }
-                urlsData.push({
-                    url: originalUrl,
-                    urlType: 'monitor',
-                    isExposed: isExposedInUrl,
-                    exposureRank: null,
-                    responseCode: null,
-                    scannedAt: updatedAt,
+
+            let isExposedInUrl = null;
+            if (exposureStatusNotion === "최상단 노출") {
+                isExposedInUrl = true;
+            } else if (exposureStatusNotion === "노출X" || exposureStatusNotion === "저품질") {
+                isExposedInUrl = false;
+            }
+            
+            // 기존글 URL과 작성글 URL을 구분하여 추가
+            if (originalUrlText) {
+                // 콤마로 구분된 URL 문자열을 배열로 분리
+                const originalUrls = originalUrlText.split(',').map(url => url.trim()).filter(url => url);
+                originalUrls.forEach(url => {
+                    urlsData.push({
+                        url: url,
+                        urlType: '기존글',
+                        isExposed: isExposedInUrl,
+                        exposureRank: null,
+                        responseCode: null,
+                        scannedAt: updatedAt,
+                    });
+                });
+            }
+
+            if (writtenUrlText) {
+                // 콤마로 구분된 URL 문자열을 배열로 분리
+                const writtenUrls = writtenUrlText.split(',').map(url => url.trim()).filter(url => url);
+                writtenUrls.forEach(url => {
+                    urlsData.push({
+                        url: url,
+                        urlType: '작성글',
+                        isExposed: isExposedInUrl,
+                        exposureRank: null,
+                        responseCode: null,
+                        scannedAt: updatedAt,
+                    });
                 });
             }
 

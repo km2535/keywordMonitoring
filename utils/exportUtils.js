@@ -14,12 +14,9 @@ export const exportToExcel = (
 ) => {
     try {
         const exportData = keywordsData.map((item) => {
-            const exposedUrls = item.urls.filter((u) => u.isExposed).length;
-            const totalUrls = item.urls.length;
-
             const urlsString = item.urls
                 .map(
-                    (url) => `${url.url} (${url.isExposed ? "노출" : "미노출"})`
+                    (url) => `${url.url} (${url.urlType})`
                 )
                 .join(", ");
 
@@ -28,8 +25,7 @@ export const exportToExcel = (
                 // 카테고리: getCategoryLabel(item.category), // 더 이상 getCategoryLabel 사용 안 함
                 카테고리: item.categoryName, // Notion에서 온 'R' 값 그대로 사용
                 "노출 상태": item.exposureStatus,
-                "노출된 URL 수": exposedUrls,
-                "전체 URL 수": totalUrls,
+                "전체 URL 수": item.urls.length,
                 "URL 리스트": urlsString,
             };
         });
@@ -40,7 +36,6 @@ export const exportToExcel = (
             { wch: 20 }, // 키워드
             { wch: 10 }, // 카테고리
             { wch: 10 }, // 노출 상태
-            { wch: 15 }, // 노출된 URL 수
             { wch: 15 }, // 전체 URL 수
             { wch: 70 }, // URL 리스트
         ];
